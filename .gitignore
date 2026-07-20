@@ -33,3 +33,6 @@ go.work.sum
 
 # Project documentation
 codeDocs/
+
+# Log files
+*.log
