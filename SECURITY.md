@@ -2,20 +2,24 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Helios is currently in active development. Security updates are provided for the latest release branch.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| 0.1.x   | :white_check_mark: |
+| < 0.1.0 | :x:                |
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+If you discover a security vulnerability in Helios, please report it immediately to help keep this project secure.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+**Please do not report security vulnerabilities via public GitHub issues.**
+
+Instead, please send an email to: **pravdevrav@gmail.com**
+
+In your report, please include:
+1. A description of the vulnerability.
+2. Steps to reproduce the issue (including any proof-of-concept scripts or commands).
+3. The potential impact of the vulnerability.
+
+We will acknowledge receipt of your report within 48 hours and work with you to coordinate a security release to address the issue. Thank you for helping keep Helios secure!
