@@ -1,0 +1,28 @@
+name: Go CI
+
+on:
+  push:
+    branches: [ main, feat/*, feat/**, fix/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up the official Go environment (needed for our system Go hooks)
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      # 3. Run the official pre-commit GitHub Action
+      # This automatically detects and runs hooks in '.pre-commit-config.yaml'
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3.0.1
