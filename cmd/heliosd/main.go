@@ -1,12 +1,13 @@
 package main
 
 import (
+	"github.com/creack/pty"
+	"github.com/praneethravuri/helios/pkg/logger"
+	"go.uber.org/zap"
 	"io"
 	"net"
 	"os"
-
-	"github.com/praneethravuri/helios/pkg/logger"
-	"go.uber.org/zap"
+	"os/exec"
 )
 
 const socketPath = "/tmp/helios.sock"
@@ -47,11 +48,31 @@ func main() {
 func handleConnection(conn net.Conn, log *zap.SugaredLogger) {
 	defer conn.Close()
 
-	log.Info("Handling client request...")
+	// prepare the process command (spawn a zsh shell on mac)
+	cmd := exec.Command("/bin/zsh")
 
-	if _, err := io.Copy(os.Stdout, conn); err != nil {
-		log.Errorw("Error copying data from client", "error", err)
+	// spawn the shell inside PTY. it acts as both a reader and writer for the shell's input/output
+	ptyMaster, err := pty.Start(cmd)
+
+	if err != nil {
+		log.Errorw("Failed to start shell in PTY", "error", err)
+		return
 	}
 
-	log.Info("Client disconnected")
+	defer ptyMaster.Close()
+
+	// ensure the spawned process is killed if the client drops the connection
+	defer func() {
+		_ = cmd.Process.Kill()
+	}()
+
+	// two way streaming. pip socket client input -> pty shell input
+	go func() {
+		_, _ = io.Copy(ptyMaster, conn)
+	}()
+
+	// copy PTY shell output -> socket client output
+	_, _ = io.Copy(conn, ptyMaster)
+
+	log.Info("Shell session ended")
 }
