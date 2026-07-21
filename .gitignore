@@ -36,3 +36,10 @@ codeDocs/
 
 # Log files
 *.log
+
+# Build artifacts (root-level binaries only -- unanchored would also match cmd/helios, cmd/heliosd)
+/helios
+/heliosd
+
+# Superpowers
+.superpowers

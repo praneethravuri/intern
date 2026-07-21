@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 	"github.com/praneethravuri/helios/pkg/logger"
@@ -72,13 +73,29 @@ func (sm *SessionManager) Broadcast(msg, target string, log *zap.SugaredLogger) 
 	matched = len(targets)
 	log.Infof("Broadcasting to %d matched session(s): %q", matched, msg)
 
+	const writeTimeout = 2 * time.Second
+
 	for _, t := range targets {
 		log.Infof("Sending command to session: %s", t.id)
-		if _, err := t.writer.Write([]byte(msg)); err != nil {
-			log.Errorw("Failed to write to session", "sessionID", t.id, "error", err)
-			continue
+		result := make(chan error, 1)
+		go func(w io.Writer) {
+			_, err := w.Write([]byte(msg))
+			result <- err
+		}(t.writer)
+
+		select {
+		case err := <-result:
+			if err != nil {
+				log.Errorw("Failed to write to session", "sessionID", t.id, "error", err)
+				continue
+			}
+			delivered++
+		case <-time.After(writeTimeout):
+			// ponytail: the write goroutine leaks until the underlying PTY write finally
+			// unblocks or the session closes -- PTY writes can't be cancelled from here.
+			// Upgrade to context-cancellable writes if wedged sessions become common.
+			log.Errorw("Timed out writing to session", "sessionID", t.id, "timeout", writeTimeout)
 		}
-		delivered++
 	}
 	return delivered, matched
 }
@@ -204,6 +221,7 @@ func handleConnection(conn net.Conn, sm *SessionManager, log *zap.SugaredLogger)
 
 	} else {
 		log.Warnf("Unknown handshake command: %q", command)
+		_, _ = conn.Write([]byte(fmt.Sprintf("Error: unknown command: %q\n", command)))
 	}
 }
 

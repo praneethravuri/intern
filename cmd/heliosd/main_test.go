@@ -223,6 +223,83 @@ func TestSessionClose_ConcurrentIdempotent(t *testing.T) {
 	}
 }
 
+// blockingWriter simulates a wedged PTY: Write never returns until unblocked.
+type blockingWriter struct {
+	unblock chan struct{}
+}
+
+func (w *blockingWriter) Write(p []byte) (int, error) {
+	<-w.unblock
+	return len(p), nil
+}
+
+func TestBroadcast_StuckWriterDoesNotHangOthers(t *testing.T) {
+	log := zap.NewNop().Sugar()
+	sm := NewSessionManager()
+
+	stuck := &blockingWriter{unblock: make(chan struct{})}
+	defer close(stuck.unblock) // let the goroutine finish so the test process can exit cleanly
+
+	var bufB bytes.Buffer
+	sm.Register("stuck", stuck)
+	sm.Register("b", &bufB)
+
+	done := make(chan struct{})
+	var delivered, matched int
+	go func() {
+		delivered, matched = sm.Broadcast("hi\n", protocol.BroadcastAll, log)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Broadcast() did not return within 3s; a stuck writer blocked the whole call")
+	}
+
+	if matched != 2 {
+		t.Fatalf("matched = %d; want 2", matched)
+	}
+	if delivered != 1 {
+		t.Fatalf("delivered = %d; want 1 (stuck writer must not count as delivered)", delivered)
+	}
+	if bufB.String() != "hi\n" {
+		t.Errorf("bufB = %q; want %q", bufB.String(), "hi\n")
+	}
+}
+
+func TestHandleConnection_UnknownCommand_WritesError(t *testing.T) {
+	log := zap.NewNop().Sugar()
+	sm := NewSessionManager()
+
+	client, server := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		handleConnection(server, sm, log)
+		close(done)
+	}()
+
+	if _, err := client.Write([]byte("GARBAGE\n")); err != nil {
+		t.Fatalf("client.Write() = %v", err)
+	}
+
+	buf := make([]byte, 256)
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatalf("expected an error response from the daemon, got read error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("expected a non-empty error response, got 0 bytes")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleConnection did not return")
+	}
+}
+
 func containsID(ids []string, id string) bool {
 	for _, x := range ids {
 		if x == id {

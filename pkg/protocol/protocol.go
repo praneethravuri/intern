@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -17,14 +18,21 @@ const BroadcastAll = "*"
 // ponytail: only broadcast framing is shared; SPAWN/LIST stay inline, low drift risk
 
 // FormatBroadcast builds a BROADCAST wire message: "BROADCAST <target> <msg>\n".
-// If target is empty, defaults to BroadcastAll.
-// Ensures the message ends with exactly one newline.
-func FormatBroadcast(target, msg string) string {
+// If target is empty, defaults to BroadcastAll. Ensures the message ends with
+// exactly one newline. Returns an error if target or msg contain characters
+// that would corrupt the space/newline-delimited wire framing.
+func FormatBroadcast(target, msg string) (string, error) {
 	if target == "" {
 		target = BroadcastAll
 	}
+	if strings.ContainsAny(target, " \t\n") {
+		return "", fmt.Errorf("target %q must not contain whitespace", target)
+	}
 	msg = strings.TrimRight(msg, "\n")
-	return "BROADCAST " + target + " " + msg + "\n"
+	if strings.Contains(msg, "\n") {
+		return "", fmt.Errorf("message must not contain embedded newlines")
+	}
+	return "BROADCAST " + target + " " + msg + "\n", nil
 }
 
 // ParseBroadcast parses a BROADCAST wire message. Returns target, message, and ok.

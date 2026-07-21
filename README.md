@@ -5,6 +5,7 @@ background daemon, so you can list what's running and broadcast a message into o
 them from a different terminal.
 
 It has two binaries:
+
 - **`heliosd`** — a background daemon that spawns and owns your sessions
 - **`helios`** — the CLI you actually type; it talks to `heliosd` over a local Unix socket
 
@@ -82,6 +83,22 @@ helios run <session-id> <command>           Run a command with a custom session 
 helios list                                 List all active sessions
 helios broadcast "<message>"                Send a message to every active session
 helios broadcast <session-id> "<message>"   Send a message to one session
+helios ui                                   Open the terminal UI
+```
+
+## Cleaning up
+
+To kill all helios processes:
+
+```sh
+# Kill the daemon
+pkill -f heliosd
+
+# Kill any running sessions
+pkill -f 'helios run'
+
+# Or kill all at once
+pkill -f helios
 ```
 
 ## Notes

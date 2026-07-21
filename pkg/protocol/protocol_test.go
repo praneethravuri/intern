@@ -6,10 +6,11 @@ import (
 
 func TestFormatBroadcast(t *testing.T) {
 	tests := []struct {
-		name   string
-		target string
-		msg    string
-		want   string
+		name    string
+		target  string
+		msg     string
+		want    string
+		wantErr bool
 	}{
 		{
 			name:   "broadcast all with simple message",
@@ -35,11 +36,38 @@ func TestFormatBroadcast(t *testing.T) {
 			msg:    "hello",
 			want:   "BROADCAST * hello\n",
 		},
+		{
+			name:    "message with embedded newline",
+			target:  BroadcastAll,
+			msg:     "line1\nline2",
+			wantErr: true,
+		},
+		{
+			name:    "target with a space",
+			target:  "my session",
+			msg:     "hello",
+			wantErr: true,
+		},
+		{
+			name:    "target with an embedded newline",
+			target:  "session\n1",
+			msg:     "hello",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := FormatBroadcast(tt.target, tt.msg)
+			got, err := FormatBroadcast(tt.target, tt.msg)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("FormatBroadcast(%q, %q) error = nil, want error", tt.target, tt.msg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("FormatBroadcast(%q, %q) unexpected error: %v", tt.target, tt.msg, err)
+			}
 			if got != tt.want {
 				t.Errorf("FormatBroadcast(%q, %q) = %q, want %q", tt.target, tt.msg, got, tt.want)
 			}
@@ -136,7 +164,10 @@ func TestRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.target+"-"+tt.msg, func(t *testing.T) {
-			formatted := FormatBroadcast(tt.target, tt.msg)
+			formatted, err := FormatBroadcast(tt.target, tt.msg)
+			if err != nil {
+				t.Fatalf("FormatBroadcast(%q, %q) unexpected error: %v", tt.target, tt.msg, err)
+			}
 			target, msg, ok := ParseBroadcast(formatted)
 			if !ok {
 				t.Errorf("ParseBroadcast(%q) failed", formatted)
