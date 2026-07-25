@@ -13,7 +13,7 @@ jobs:
     steps:
       # 1. Checkout the repository code
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 2. Set up the official Go environment (needed for our system Go hooks)
       - name: Set up Go
