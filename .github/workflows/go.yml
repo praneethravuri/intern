@@ -23,9 +23,14 @@ jobs:
           cache: true
 
       # 3. Run the official pre-commit GitHub Action
-      # This automatically detects and runs hooks in '.pre-commit-config.yaml'
+      # This automatically detects and runs hooks in '.pre-commit-config.yaml'.
+      # golangci-lint is skipped here and handled by the dedicated action below,
+      # which caches the binary and annotates the diff. The hook still exists so
+      # the same linter gates local commits.
       - name: Run pre-commit hooks
         uses: pre-commit/action@v3.0.1
+        env:
+          SKIP: golangci-lint
 
       # 4. Actually compile and test. Neither ran in CI before this, so a broken
       # build or a failing test could merge silently.

@@ -19,9 +19,13 @@ repos:
         types: [go]
         pass_filenames: true
 
-      - id: go-vet
-        name: go vet
-        entry: go vet ./...
+      # Replaces a standalone `go vet`: govet is one of the 8 linters in
+      # .golangci.yml, so running both was two passes for one result.
+      # CI skips this hook (see go.yml) because it runs golangci-lint through
+      # the dedicated action, which caches the binary and annotates the diff.
+      - id: golangci-lint
+        name: golangci-lint
+        entry: golangci-lint run
         language: system
+        types: [go]
         pass_filenames: false
-        always_run: true
