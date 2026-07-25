@@ -20,7 +20,6 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(runCmd, listCmd, broadcastCmd, uiCmd)
 	rootCmd.AddCommand(registerCmd, sendCmd, inboxCmd, whoCmd)
-	rootCmd.AddCommand(mcpCmd)
 }
 
 func main() {

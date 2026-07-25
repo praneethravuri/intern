@@ -138,7 +138,6 @@ func main() {
 	// any OS, not just macOS/Linux where PTYs and Unix sockets are available.
 	mb := NewMailbox()
 	go serveMailbox(mb, log)
-	go serveA2A(log)
 
 	for {
 		conn, err := listener.Accept()

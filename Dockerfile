@@ -25,11 +25,6 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /out/heliosd /out/helios /usr/local/bin/
 
-# HELIOS_LOG=stdout routes heliosd's structured logs to the container's stdout instead
-# of a log file -- no code change needed: logPath() honors HELIOS_LOG, and zap treats
-# the literal string "stdout" as a built-in sink rather than a filesystem path.
-ENV HELIOS_LOG=stdout
-
 USER nonroot:nonroot
 
 ENTRYPOINT ["/usr/local/bin/heliosd"]

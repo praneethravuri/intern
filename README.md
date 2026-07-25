@@ -78,7 +78,7 @@ Exit the session (e.g. `Ctrl+D`) to end it.
 ./helios list
 ./helios broadcast "my-session" "hello"       # one session
 ./helios broadcast "hello everyone"           # every active session
-./helios ui                                    # read-only inspector TUI
+./helios ui                                    # interactive TUI (session list + broadcast composer)
 ```
 
 ## Mailbox: message other agents
@@ -134,7 +134,7 @@ helios run <session-id> <command>           Run a command with a custom session 
 helios list                                 List all active sessions
 helios broadcast "<message>"                Send a message to every active session
 helios broadcast <session-id> "<message>"   Send a message to one session
-helios ui                                   Open the read-only inspector TUI
+helios ui                                   Open the interactive TUI (session list + broadcast composer)
 
 helios register <name>                      Register this agent with the mailbox
 helios send <from> <to> <message>           Message one agent, or "*" for everyone
