@@ -1,14 +1,13 @@
-.PHONY: build daemon stop
+.PHONY: build test lint clean
 
 build:
-	go build -o tetherd ./cmd/tetherd
-	go build -o tether ./cmd/tether
+	go build -ldflags "-X main.version=$$(git describe --tags --always --dirty)" -o tether ./cmd/tether
 
-daemon: build
-	./tetherd > /tmp/tetherd.log 2>&1 & echo $$! > /tmp/tetherd.pid
-	@sleep 1
-	@echo "tetherd running (pid $$(cat /tmp/tetherd.pid)), logs at /tmp/tetherd.log"
+test:
+	go test -race ./...
 
-stop:
-	@kill $$(cat /tmp/tetherd.pid) 2>/dev/null && echo "stopped" || echo "not running"
-	@rm -f /tmp/tetherd.pid
+lint:
+	golangci-lint run
+
+clean:
+	rm -f tether
