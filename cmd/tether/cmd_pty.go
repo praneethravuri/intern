@@ -9,18 +9,18 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/praneethravuri/helios/pkg/protocol"
-	"github.com/praneethravuri/helios/pkg/ui"
+	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
-// dialDaemon connects to heliosd's Unix socket -- unchanged from before the
+// dialDaemon connects to tetherd's Unix socket -- unchanged from before the
 // cobra migration; this is the PTY side, which stays macOS/Linux-only (PTYs and
 // Unix sockets aren't available on Windows). The mailbox commands in
 // cmd_mailbox.go use a separate TCP connection instead, so they work anywhere.
 func dialDaemon() (net.Conn, error) {
-	log.Info("Connecting to heliosd...")
+	log.Info("Connecting to tetherd...")
 	return net.Dial("unix", protocol.SocketPath)
 }
 
@@ -54,7 +54,7 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("failed to send spawn handshake: %w", err)
 		}
 
-		fmt.Fprintf(cmd.ErrOrStderr(), "helios: session %q (use: helios broadcast %q \"<msg>\")\n", sessionID, sessionID)
+		fmt.Fprintf(cmd.ErrOrStderr(), "tether: session %q (use: tether broadcast %q \"<msg>\")\n", sessionID, sessionID)
 
 		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 		if err != nil {

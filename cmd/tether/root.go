@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/praneethravuri/helios/pkg/logger"
+	"github.com/praneethravuri/tether/pkg/logger"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -13,7 +13,7 @@ import (
 var log *zap.SugaredLogger
 
 var rootCmd = &cobra.Command{
-	Use:   "helios",
+	Use:   "tether",
 	Short: "Run and message coding-agent sessions from any terminal",
 }
 

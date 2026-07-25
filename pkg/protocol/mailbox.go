@@ -8,14 +8,14 @@ import (
 // MailboxAddr is the default TCP loopback address for the mailbox RPC surface.
 // Unlike SocketPath (a Unix domain socket, unavailable on Windows), TCP loopback
 // works identically on any OS -- the mailbox is meant to be reachable from any
-// harness regardless of platform. Override with HELIOS_MAILBOX_ADDR.
+// harness regardless of platform. Override with TETHER_MAILBOX_ADDR.
 const MailboxAddr = "127.0.0.1:47530"
 
-// MailboxAddrFromEnv returns HELIOS_MAILBOX_ADDR if set, else MailboxAddr.
-// Shared by heliosd (listener) and helios (client) so both sides agree on
+// MailboxAddrFromEnv returns TETHER_MAILBOX_ADDR if set, else MailboxAddr.
+// Shared by tetherd (listener) and tether (client) so both sides agree on
 // where the mailbox lives.
 func MailboxAddrFromEnv() string {
-	if addr := os.Getenv("HELIOS_MAILBOX_ADDR"); addr != "" {
+	if addr := os.Getenv("TETHER_MAILBOX_ADDR"); addr != "" {
 		return addr
 	}
 	return MailboxAddr

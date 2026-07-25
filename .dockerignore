@@ -3,6 +3,6 @@
 .claude
 .superpowers
 *.log
-/helios
-/heliosd
+/tether
+/tetherd
 .DS_Store

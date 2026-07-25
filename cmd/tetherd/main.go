@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/praneethravuri/helios/pkg/logger"
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/logger"
+	"github.com/praneethravuri/tether/pkg/protocol"
 	"go.uber.org/zap"
 )
 
@@ -31,7 +31,7 @@ func NewSessionManager() *SessionManager {
 }
 
 // Register adds a PTY writer to our active sessions map, returning an error if the id is already active.
-// ponytail: %1000 default id is collision-prone; explicit `helios run <id> claude` is the escape hatch
+// ponytail: %1000 default id is collision-prone; explicit `tether run <id> claude` is the escape hatch
 func (sm *SessionManager) Register(id string, writer io.Writer) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -116,7 +116,7 @@ func main() {
 	log, cleanup := logger.InitLogger()
 	defer cleanup()
 
-	log.Info("Starting heliosd...")
+	log.Info("Starting tetherd...")
 
 	// Clean up old socket files
 	if err := os.RemoveAll(protocol.SocketPath); err != nil {
