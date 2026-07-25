@@ -26,3 +26,17 @@ jobs:
       # This automatically detects and runs hooks in '.pre-commit-config.yaml'
       - name: Run pre-commit hooks
         uses: pre-commit/action@v3.0.1
+
+      # 4. Actually compile and test. Neither ran in CI before this, so a broken
+      # build or a failing test could merge silently.
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race ./...
+
+      # 5. .golangci.yml configured 8 linters that nothing ever invoked.
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
