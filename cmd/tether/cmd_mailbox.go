@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/protocol"
 	"github.com/spf13/cobra"
 )
 
 var registerCmd = &cobra.Command{
 	Use:   "register <name>",
-	Short: "Register this agent with the Helios mailbox",
+	Short: "Register this agent with the Tether mailbox",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, err := callMailbox(protocol.MailboxRequest{Op: protocol.MailboxOpRegister, From: args[0]})

@@ -11,7 +11,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lip "github.com/charmbracelet/lipgloss"
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 type mode int
@@ -156,7 +156,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// fetchSessions asks heliosd for the active session list over its Unix socket.
+// fetchSessions asks tetherd for the active session list over its Unix socket.
 func fetchSessions() tea.Msg {
 	conn, err := net.Dial("unix", protocol.SocketPath)
 	if err != nil {

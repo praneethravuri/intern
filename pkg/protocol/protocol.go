@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const SocketPath = "/tmp/helios.sock"
+const SocketPath = "/tmp/tether.sock"
 
 const (
 	VerbSpawn     = "SPAWN"
