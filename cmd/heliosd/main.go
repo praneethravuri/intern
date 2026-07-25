@@ -134,6 +134,12 @@ func main() {
 	// Initialize our session manager
 	sm := NewSessionManager()
 
+	// Mailbox listens on TCP loopback, not the Unix socket above -- so it works on
+	// any OS, not just macOS/Linux where PTYs and Unix sockets are available.
+	mb := NewMailbox()
+	go serveMailbox(mb, log)
+	go serveA2A(log)
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
