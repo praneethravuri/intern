@@ -11,6 +11,8 @@ jobs:
   build:
     # Validates the Dockerfile builds on every push/PR. Never pushes an image.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
