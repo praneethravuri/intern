@@ -33,6 +33,13 @@ go build -o helios ./cmd/helios
 
 Put both somewhere on your `PATH` if you want to run `helios` from anywhere.
 
+Or, one command to build both and start the daemon in the background:
+
+```sh
+make daemon    # builds, starts heliosd, logs to /tmp/heliosd.log
+make stop      # kills it
+```
+
 ## Sessions: run, list, broadcast
 
 **1. Start the daemon** (in its own terminal, leave it running):
@@ -42,7 +49,7 @@ Put both somewhere on your `PATH` if you want to run `helios` from anywhere.
 ```
 
 Listens on `/tmp/helios.sock` for sessions, and `127.0.0.1:47530` for the mailbox (override
-with `HELIOS_MAILBOX_ADDR`).
+with `HELIOS_MAILBOX_ADDR`). `make daemon` does this step for you, in the background.
 
 **2. Start a session** (in a new terminal):
 
