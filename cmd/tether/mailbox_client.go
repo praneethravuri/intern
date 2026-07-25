@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 // callMailbox sends one request and returns the daemon's response.
 func callMailbox(req protocol.MailboxRequest) (protocol.MailboxResponse, error) {
 	conn, err := net.Dial("tcp", protocol.MailboxAddrFromEnv())
 	if err != nil {
-		return protocol.MailboxResponse{}, fmt.Errorf("connect to heliosd mailbox: %w", err)
+		return protocol.MailboxResponse{}, fmt.Errorf("connect to tetherd mailbox: %w", err)
 	}
 	defer conn.Close()
 

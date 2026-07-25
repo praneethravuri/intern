@@ -1,8 +1,8 @@
-# helios
+# tether
 
 Two things in one daemon:
 
-1. **Run and broadcast into terminal sessions.** `helios run claude` (or any command) through a
+1. **Run and broadcast into terminal sessions.** `tether run claude` (or any command) through a
    background daemon, list what's running, broadcast a message into one or all of them from
    another terminal.
 2. **Message other agents.** Independent agent harnesses (Claude Code, Codex, Gemini CLI,
@@ -12,8 +12,8 @@ Two things in one daemon:
 
 It has two binaries:
 
-- **`heliosd`** — a background daemon: owns PTY sessions, and runs the mailbox
-- **`helios`** — the CLI you actually type
+- **`tetherd`** — a background daemon: owns PTY sessions, and runs the mailbox
+- **`tether`** — the CLI you actually type
 
 ## Requirements
 
@@ -27,16 +27,16 @@ It has two binaries:
 From the repo root:
 
 ```sh
-go build -o heliosd ./cmd/heliosd
-go build -o helios ./cmd/helios
+go build -o tetherd ./cmd/tetherd
+go build -o tether ./cmd/tether
 ```
 
-Put both somewhere on your `PATH` if you want to run `helios` from anywhere.
+Put both somewhere on your `PATH` if you want to run `tether` from anywhere.
 
 Or, one command to build both and start the daemon in the background:
 
 ```sh
-make daemon    # builds, starts heliosd, logs to /tmp/heliosd.log
+make daemon    # builds, starts tetherd, logs to /tmp/tetherd.log
 make stop      # kills it
 ```
 
@@ -45,29 +45,29 @@ make stop      # kills it
 **1. Start the daemon** (in its own terminal, leave it running):
 
 ```sh
-./heliosd
+./tetherd
 ```
 
-Listens on `/tmp/helios.sock` for sessions, and `127.0.0.1:47530` for the mailbox (override
-with `HELIOS_MAILBOX_ADDR`). `make daemon` does this step for you, in the background.
+Listens on `/tmp/tether.sock` for sessions, and `127.0.0.1:47530` for the mailbox (override
+with `TETHER_MAILBOX_ADDR`). `make daemon` does this step for you, in the background.
 
 **2. Start a session** (in a new terminal):
 
 ```sh
-./helios run claude
+./tether run claude
 ```
 
 Spawns `claude` in a managed pseudo-terminal and connects your terminal to it. Prints the
 session's id on startup:
 
 ```
-helios: session "claude-492" (use: helios broadcast "claude-492" "<msg>")
+tether: session "claude-492" (use: tether broadcast "claude-492" "<msg>")
 ```
 
 Give it your own id instead of the auto-generated one:
 
 ```sh
-./helios run my-session zsh
+./tether run my-session zsh
 ```
 
 Exit the session (e.g. `Ctrl+D`) to end it.
@@ -75,10 +75,10 @@ Exit the session (e.g. `Ctrl+D`) to end it.
 **3. List and broadcast**, from any other terminal while a session is running:
 
 ```sh
-./helios list
-./helios broadcast "my-session" "hello"       # one session
-./helios broadcast "hello everyone"           # every active session
-./helios ui                                    # interactive TUI (session list + broadcast composer)
+./tether list
+./tether broadcast "my-session" "hello"       # one session
+./tether broadcast "hello everyone"           # every active session
+./tether ui                                    # interactive TUI (session list + broadcast composer)
 ```
 
 ## Mailbox: message other agents
@@ -87,24 +87,24 @@ No daemon-managed session required — any agent (yours or another harness's) ca
 message another by name.
 
 ```sh
-./helios register alice
-./helios register bob
+./tether register alice
+./tether register bob
 
-./helios send alice bob "can you check the auth module?"
-./helios inbox bob
+./tether send alice bob "can you check the auth module?"
+./tether inbox bob
 # [15:04:05] alice: can you check the auth module?
 
-./helios who
+./tether who
 # ["alice", "bob"]
 
-./helios send alice "*" "heads up, deploying in 5"   # everyone but the sender
+./tether send alice "*" "heads up, deploying in 5"   # everyone but the sender
 ```
 
 An agent finds out the CLI exists the same way it finds out about any other tool — one line in
 `CLAUDE.md`/`AGENTS.md`:
 
 ```
-Run `helios who` to see other active agents, `helios send <name> "msg"` to message one.
+Run `tether who` to see other active agents, `tether send <name> "msg"` to message one.
 ```
 
 ### MCP and A2A — optional, only if a harness needs them
@@ -114,14 +114,14 @@ context — an MCP tool's schema costs real tokens every session whether it's us
 MCP in only for a harness sandboxed without shell:
 
 ```sh
-./helios mcp   # stdio MCP server, exposes helios_register/send/inbox/who
+./tether mcp   # stdio MCP server, exposes tether_register/send/inbox/who
 ```
 
 ```json
-{"mcpServers": {"helios": {"command": "helios", "args": ["mcp"]}}}
+{"mcpServers": {"tether": {"command": "tether", "args": ["mcp"]}}}
 ```
 
-`heliosd` also carries an A2A Agent Card (`cmd/heliosd/a2a.go`) for a genuinely external
+`tetherd` also carries an A2A Agent Card (`cmd/tetherd/a2a.go`) for a genuinely external
 A2A-native agent — not any of the 5 target harnesses, which all reach the mailbox via CLI or
 MCP instead. Boilerplate only for now; the full request handler isn't wired up until something
 actually needs it.
@@ -129,26 +129,26 @@ actually needs it.
 ## Command reference
 
 ```
-helios run <command>                        Run a command with an auto-generated session id
-helios run <session-id> <command>           Run a command with a custom session id
-helios list                                 List all active sessions
-helios broadcast "<message>"                Send a message to every active session
-helios broadcast <session-id> "<message>"   Send a message to one session
-helios ui                                   Open the interactive TUI (session list + broadcast composer)
+tether run <command>                        Run a command with an auto-generated session id
+tether run <session-id> <command>           Run a command with a custom session id
+tether list                                 List all active sessions
+tether broadcast "<message>"                Send a message to every active session
+tether broadcast <session-id> "<message>"   Send a message to one session
+tether ui                                   Open the interactive TUI (session list + broadcast composer)
 
-helios register <name>                      Register this agent with the mailbox
-helios send <from> <to> <message>           Message one agent, or "*" for everyone
-helios inbox <name>                         Read and clear pending messages
-helios who                                  List agents seen in the last 30 minutes
-helios mcp                                  Start the (optional) MCP server
+tether register <name>                      Register this agent with the mailbox
+tether send <from> <to> <message>           Message one agent, or "*" for everyone
+tether inbox <name>                         Read and clear pending messages
+tether who                                  List agents seen in the last 30 minutes
+tether mcp                                  Start the (optional) MCP server
 ```
 
 ## Cleaning up
 
 ```sh
-pkill -f heliosd            # kill the daemon
-pkill -f 'helios run'       # kill any running sessions
-pkill -f helios              # or kill everything at once
+pkill -f tetherd            # kill the daemon
+pkill -f 'tether run'       # kill any running sessions
+pkill -f tether              # or kill everything at once
 ```
 
 ## Notes
@@ -156,6 +156,6 @@ pkill -f helios              # or kill everything at once
 - Session ids must be unique — reusing an id that's still running is rejected.
 - A broadcast is delivered as raw keystrokes into the target session's terminal, followed by
   Enter — works the same whether the session is a shell or an interactive program.
-- The mailbox is in-memory — it resets when `heliosd` restarts, same as sessions do today.
+- The mailbox is in-memory — it resets when `tetherd` restarts, same as sessions do today.
 - Mailbox `send` fails if the target isn't registered; broadcast (`to = "*"`) skips the sender,
   which stops the obvious self-reply loop but not a longer chain through two different agents.

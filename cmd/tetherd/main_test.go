@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/protocol"
 	"go.uber.org/zap"
 )
 

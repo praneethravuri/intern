@@ -1,4 +1,4 @@
-module github.com/praneethravuri/helios
+module github.com/praneethravuri/tether
 
 go 1.26.5
 

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 // staleAfter is how long an agent can go unseen before "who" stops listing it.

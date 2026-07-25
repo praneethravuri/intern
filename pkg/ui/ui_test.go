@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 func TestPaneWidths(t *testing.T) {

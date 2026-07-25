@@ -1,14 +1,14 @@
 .PHONY: build daemon stop
 
 build:
-	go build -o heliosd ./cmd/heliosd
-	go build -o helios ./cmd/helios
+	go build -o tetherd ./cmd/tetherd
+	go build -o tether ./cmd/tether
 
 daemon: build
-	./heliosd > /tmp/heliosd.log 2>&1 & echo $$! > /tmp/heliosd.pid
+	./tetherd > /tmp/tetherd.log 2>&1 & echo $$! > /tmp/tetherd.pid
 	@sleep 1
-	@echo "heliosd running (pid $$(cat /tmp/heliosd.pid)), logs at /tmp/heliosd.log"
+	@echo "tetherd running (pid $$(cat /tmp/tetherd.pid)), logs at /tmp/tetherd.log"
 
 stop:
-	@kill $$(cat /tmp/heliosd.pid) 2>/dev/null && echo "stopped" || echo "not running"
-	@rm -f /tmp/heliosd.pid
+	@kill $$(cat /tmp/tetherd.pid) 2>/dev/null && echo "stopped" || echo "not running"
+	@rm -f /tmp/tetherd.pid
