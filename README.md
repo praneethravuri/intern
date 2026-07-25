@@ -1,44 +1,28 @@
 # tether
 
-**Every coding agent runs in a silo. tether lets them talk to each other.**
+Every coding agent runs in a silo. Claude Code can't see your Codex session; Codex can't message your Cline session. Each harness ships its own session registry and mailbox, and none of them cross.
 
-Claude Code can't see your Codex session. Codex can't message your Cline session. Each vendor ships its own session registry, its own mailbox, its own status API — and none of them cross. tether is one registry and one inbox for all of them, driven entirely from the shell.
+tether is one shared registry for all of them: a daemon (`tetherd`) that tracks which agents are running, and a CLI (`tether`) that talks to it over a local unix socket.
 
-> **Status: clean slate.** The scaffolding is here — module, CLI entrypoint, CI, container build. The daemon and the commands are being written from scratch. Nothing below the Install section works yet.
+## How it works
 
-## Why a CLI, and no MCP
+`tetherd` runs in the background and listens on a unix socket (`$TETHER_SOCK`, or `$XDG_RUNTIME_DIR/tether/sock`, or `~/.tether/sock`). The `tether` CLI connects to that socket, sends a JSON request, and prints the response.
 
-Because every harness already has a shell tool, and MCP costs three times as much to do the same work.
-
-| Condition | Success | Cost / task | Turns |
-|---|---:|---:|---:|
-| Agent-native CLI | **100%** | **$0.050** | **3** |
-| Plain CLI | 86% | $0.054 | 3 |
-| MCP server | 87% | $0.148 | 6 |
-| MCP + tool search | 82% | $0.147 | 8 |
-
-<sub>AXI benchmark, 425 runs, Claude Sonnet 4.6.</sub>
-
-Read row two carefully: a *plain* CLI only reaches 86%. The jump comes from being **agent-native** — terse output, real exit codes, a next-step hint after every command — not from merely being a CLI.
-
-An MCP tool schema also costs roughly 700–1,000 tokens of context per session whether the agent calls it or not. A binary on `PATH` costs nothing until it runs.
-
-## The one mechanism that works everywhere
-
-Of nine harnesses surveyed, only three expose a live session registry and only five accept a push. But **all nine can run a shell command** — so that's the foundation, and everything else is an optimization layered on top.
-
-| Tier | Mechanism | Coverage |
-|---|---|---|
-| 0 | The agent runs `tether send` / `tether inbox` itself | every harness |
-| 1 | Push delivery — HTTP hooks, `turn/steer`, hub attach | per harness |
-| 2 | PTY injection | only sessions tether spawned |
-
-The rule that keeps this honest: **if a feature only works for Claude Code, it's tier 1, never core.**
+```
+tether ls / register
+        │
+        ▼
+  unix socket (0600, owner-only)
+        │
+        ▼
+     tetherd  ──  in-memory registry of agents
+```
 
 ## Install
 
 ```sh
 go install github.com/praneethravuri/tether/cmd/tether@latest
+go install github.com/praneethravuri/tether/cmd/tetherd@latest
 ```
 
 Or build from source:
@@ -47,35 +31,21 @@ Or build from source:
 make build && ./tether version
 ```
 
-## Planned interface
+## Usage
 
-Five commands. None of these are implemented yet.
+Start the daemon first:
 
 ```sh
-tether                      # the fleet — bare command shows data, not help
-tether run claude --as api  # spawn and register in one step
-tether ls                   # who's out there, and what they're doing
-tether send api "ci is red" # message one agent, or "*" for all
-tether inbox                # read and clear yours
+tetherd
 ```
 
-```
-$ tether ls
-3 agents · 1 blocked · 1 idle
+Then, from any shell:
 
-NAME    HARNESS       AGE   PENDING
-api     claude-code   12m   2
-web     codex         4m    —
-docs    gemini-cli    31m   —
-
-Next: tether inbox --as api
-```
-
-Integration is one line in `AGENTS.md` or `CLAUDE.md`. No config, no restart, no standing token cost:
-
-```
-Other agents are reachable: `tether ls` to see them, `tether send <name> "msg"` to
-message one, `tether inbox` to read yours.
+```sh
+tether            # bare command — same as `tether ls`
+tether register   # register this agent with the daemon
+tether ls         # list all registered agents
+tether version    # print the tether version
 ```
 
 ## Development
