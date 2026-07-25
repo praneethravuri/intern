@@ -117,7 +117,7 @@ var broadcastCmd = &cobra.Command{
 
 var uiCmd = &cobra.Command{
 	Use:   "ui",
-	Short: "Open the read-only inspector TUI",
+	Short: "Open the interactive TUI (session list + broadcast composer)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		m := ui.New()
