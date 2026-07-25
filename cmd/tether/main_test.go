@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/helios/pkg/protocol"
+	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 func TestParseBroadcast(t *testing.T) {
