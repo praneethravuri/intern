@@ -4,5 +4,4 @@
 .superpowers
 *.log
 /tether
-/tetherd
 .DS_Store
