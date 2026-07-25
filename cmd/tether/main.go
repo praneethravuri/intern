@@ -31,9 +31,9 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage: true,
 		// AXI principle 8: a bare invocation shows live data, not help text.
 		// Until there is a daemon to ask, say so plainly rather than dumping usage.
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), "0 agents. No daemon running.")
-			return nil
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "0 agents. No daemon running.")
+			return err
 		},
 	}
 
@@ -41,7 +41,7 @@ func newRootCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 			return err
 		},
