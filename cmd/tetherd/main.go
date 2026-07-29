@@ -1,98 +1,97 @@
+// Command tetherd is the tether daemon: a local message bus for coding agents.
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"github.com/praneethravuri/tether/pkg/protocol"
-	"io"
+	"context"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 	"time"
+
+	"github.com/praneethravuri/tether/internal/store"
+	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
+	log.SetPrefix("tetherd: ")
+
+	if err := run(); err != nil {
+		log.Printf("fatal: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	sockPath, err := protocol.SocketPath()
 	if err != nil {
-		log.Fatalf("Failed to resolve socket path: %v", err)
+		return err
 	}
-
-	listener, err := protocol.Listen(sockPath)
-
+	dbPath, err := protocol.DBPath()
 	if err != nil {
-		log.Fatalf("Daemon failed to bind socket: %v", err)
+		return err
 	}
 
-	defer func() { _ = listener.Close() }()
-
-	log.Printf("tetherd listening on %s", sockPath)
-
-	reg := NewRegistry()
-
-	// infinite accept loop
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Printf("Failed to accept connection: %v", err)
-			continue
-		}
-
-		go handleConnection(conn, reg)
+	// Closes a race daemonIsLive alone can't: Listen unlinks any existing
+	// socket, so two racing tetherd processes could both pass the liveness
+	// check below before either binds.
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o700); err != nil {
+		return err
 	}
-}
-
-func handleConnection(conn net.Conn, reg *Registry) {
-	defer func() { _ = conn.Close() }()
-
-	pid, err := getPeerPID(conn)
+	release, err := acquireLock(sockPath + ".lock")
 	if err != nil {
-		log.Printf("Failed to get peer PID: %v", err)
-		return
+		return err
+	}
+	defer release()
+
+	// Second, independent check: catches a live tetherd not holding this lock.
+	if daemonIsLive(sockPath) {
+		return &startupError{"socket " + sockPath + " is already served by a running tetherd"}
 	}
 
-	decoder := json.NewDecoder(conn)
-	encoder := json.NewEncoder(conn)
-
-	for {
-		var req protocol.Request
-		if err := decoder.Decode(&req); err != nil {
-			if err != io.EOF {
-				log.Printf("JSON decode error from PID %d: %v", pid, err)
-			}
-			break
-		}
-
-		res := handleCommand(req, pid, reg)
-
-		if err := encoder.Encode(res); err != nil {
-			log.Printf("Failed to write response to PID %d: %v", pid, err)
-			break
-		}
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		return err
 	}
+	st.Logger = log.Default()
+	defer func() {
+		if err := st.Close(); err != nil {
+			log.Printf("closing store: %v", err)
+		}
+	}()
+
+	ln, err := protocol.Listen(sockPath)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("listening on %s", sockPath)
+	log.Printf("database %s", dbPath)
+
+	err = NewServer(st, DefaultConfig()).Serve(ctx, ln)
+	log.Printf("tetherd stopped")
+	return err
 }
 
-// TODO: DetectHarness() instead of unknown
-// TODO: agent should not name itself
-func handleCommand(req protocol.Request, pid int, reg *Registry) protocol.Response {
-	res := protocol.Response{ID: req.ID}
-
-	switch req.Method {
-	case "register":
-		meta := AgentMeta{
-			Harness:   "unknown",
-			PID:       pid,
-			StartTime: time.Now(),
-		}
-
-		if err := reg.Register(fmt.Sprintf("agent-%d", pid), meta); err != nil {
-			res.Error = &protocol.Error{Code: 1, Message: err.Error()}
-		} else {
-			res.Result = "registered"
-		}
-	case "list":
-		res.Result = reg.List()
-	default:
-		res.Error = &protocol.Error{Code: 2, Message: "unknown method: " + req.Method}
+// daemonIsLive reports whether something is currently accepting on path. A
+// leftover socket file from a crashed daemon refuses connections and is treated
+// as free.
+func daemonIsLive(path string) bool {
+	conn, err := net.DialTimeout("unix", path, 250*time.Millisecond)
+	if err != nil {
+		return false
 	}
-
-	return res
+	_ = conn.Close()
+	return true
 }
+
+// startupError keeps main's failure messages free of Go error decoration.
+type startupError struct{ msg string }
+
+func (e *startupError) Error() string { return e.msg }

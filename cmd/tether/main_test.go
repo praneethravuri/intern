@@ -1,73 +1,271 @@
 package main
 
 import (
-	"bytes"
-	"path/filepath"
+	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
-// run executes the root command with args and returns combined stdout.
-// It points TETHER_SOCK at a path with no daemon listening, so tests never
-// depend on (or interfere with) a real tetherd running on the machine.
-func run(t *testing.T, args ...string) string {
+// mustParseDuration parses a Go duration or fails the test.
+func mustParseDuration(t *testing.T, s string) time.Duration {
 	t.Helper()
-	t.Setenv("TETHER_SOCK", filepath.Join(t.TempDir(), "sock"))
-	var out bytes.Buffer
-	cmd := newRootCmd()
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs(args)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute %v: %v", args, err)
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		t.Fatalf("ParseDuration(%q): %v", s, err)
 	}
-	return out.String()
-}
-
-func TestBareCommandReportsState(t *testing.T) {
-	// AXI principle 8: no args shows data, not usage. Principle 5: the empty
-	// state is explicit, never silence.
-	got := run(t)
-	if !strings.Contains(got, "0 agents") {
-		t.Errorf("bare command = %q, want it to report agent count", got)
-	}
-	if strings.Contains(got, "Usage:") {
-		t.Errorf("bare command dumped usage text, want live state:\n%s", got)
-	}
+	return d
 }
 
 func TestVersion(t *testing.T) {
-	if got := strings.TrimSpace(run(t, "version")); got != version {
-		t.Errorf("version = %q, want %q", got, version)
+	r := mustRun(t, newRootCmd(), "", "version")
+	if strings.TrimSpace(r.stdout) != version {
+		t.Fatalf("stdout = %q, want %q", r.stdout, version)
 	}
 }
 
-func TestRegisterCommand(t *testing.T) {
-	t.Setenv("TETHER_SOCK", fakeDaemon(t, protocol.Response{ID: "cli-1", Result: "registered"}))
+func TestRootHelpListsEveryCommand(t *testing.T) {
+	r := mustRun(t, newRootCmd(), "", "--help")
 
-	var out bytes.Buffer
-	cmd := newRootCmd()
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"register"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute register: %v", err)
+	for _, want := range []string{
+		"register", "send", "inbox", "wait", "ls", "explain", "doctor", "version",
+	} {
+		requireContains(t, r.stdout, want, "help")
 	}
 
-	if !strings.Contains(out.String(), "Successfully registered") {
-		t.Errorf("register output = %q, want it to confirm registration", out.String())
+	// The help is the only documentation an agent reads before its first call,
+	// so the two things that trip callers up have to be in it.
+	requireContains(t, r.stdout, "--body-file", "help")
+	requireContains(t, r.stdout, "Exit codes", "help")
+}
+
+func TestEveryCommandHasHelp(t *testing.T) {
+	commands := map[string]func() *cobra.Command{
+		"register": newRegisterCmd,
+		"send":     newSendCmd,
+		"inbox":    newInboxCmd,
+		"wait":     newWaitCmd,
+		"ls":       newLsCmd,
+		"explain":  newExplainCmd,
+		"doctor":   newDoctorCmd,
+	}
+
+	for name, build := range commands {
+		t.Run(name, func(t *testing.T) {
+			cmd := build()
+			if cmd.Short == "" {
+				t.Fatalf("%s has no short description", name)
+			}
+			if cmd.Long == "" {
+				t.Fatalf("%s has no long description", name)
+			}
+			if cmd.Example == "" {
+				t.Fatalf("%s has no example", name)
+			}
+
+			r := mustRun(t, build(), "", "--help")
+			requireContains(t, r.stdout, "Usage:", "help")
+			requireContains(t, r.stdout, "Examples:", "help")
+			requireContains(t, r.stdout, cmd.Name(), "help")
+		})
 	}
 }
 
-func TestUnknownFlagFails(t *testing.T) {
-	// AXI principle 6: fail loud on unknown flags, never ignore one.
-	cmd := newRootCmd()
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--nope"})
-	if err := cmd.Execute(); err == nil {
-		t.Error("unknown flag accepted, want an error")
+// A runtime failure must not dump the usage block: the message says what to do,
+// and a wall of flags buries it.
+func TestRuntimeFailuresDoNotPrintUsage(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	noDaemon(t)
+
+	r := run(t, newRootCmd(), "", "who")
+	if r.err == nil {
+		t.Fatal("who succeeded with no daemon")
+	}
+	requireNotContains(t, r.stdout, "Usage:", "stdout")
+	requireNotContains(t, r.stderr, "Usage:", "stderr")
+	requireNotContains(t, r.stderr, "Error:", "stderr")
+}
+
+func TestRootRoutesToSubcommands(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01KROUTED"}))
+
+	r := mustRun(t, newRootCmd(), "", "send", "--to", "backend", "hello")
+
+	d.registerThen(t, protocol.MethodSend)
+	requireContains(t, r.stdout, "01KROUTED", "stdout")
+}
+
+// TestBareRootRunsLs is the headline change for bare `tether`: with no
+// subcommand it now runs the same fleet listing as `tether ls`, rather than
+// printing help. -h/--help still works (TestRootHelpListsEveryCommand
+// exercises that explicitly, via cobra's own flag interception, which runs
+// before RunE ever gets a chance).
+func TestBareRootRunsLs(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	d := newFakeDaemon(t, okHandler(agents()))
+
+	bare := mustRun(t, newRootCmd(), "")
+
+	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodWho))
+	if params.Workspace != "storefront" {
+		t.Fatalf("bare tether params = %+v, want workspace storefront", params)
+	}
+	requireContains(t, bare.stdout, "frontend@storefront", "stdout")
+
+	// Same code path as an explicit `tether ls`.
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(agents()))
+	ls := mustRun(t, newLsCmd(), "")
+	if bare.stdout != ls.stdout {
+		t.Fatalf("bare tether output differs from `tether ls`:\nbare:\n%s\nls:\n%s", bare.stdout, ls.stdout)
+	}
+}
+
+// TestUnknownCommandIsRejected is the flip side of TestBareRootRunsLs: since
+// root is now runnable, root.Args = cobra.NoArgs is what makes an unrecognised
+// subcommand fail loudly instead of silently running `ls` with the typo
+// treated as an ignored positional argument. This is cobra's own out-of-the-box
+// "unknown command" behaviour for a NoArgs root with subcommands, verified
+// here rather than assumed.
+func TestUnknownCommandIsRejected(t *testing.T) {
+	r := run(t, newRootCmd(), "", "teleport")
+	if r.err == nil {
+		t.Fatal("an unknown command was accepted")
+	}
+	if got := r.exitCode(); got != exitGeneral {
+		t.Fatalf("exit code = %d, want %d", got, exitGeneral)
+	}
+	requireContains(t, r.err.Error(), "unknown command", "error")
+	requireNotContains(t, r.stdout, "Usage:", "stdout")
+	requireNotContains(t, r.stderr, "Usage:", "stderr")
+}
+
+func TestExitCodeFor(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "no error", err: nil, want: exitOK},
+		{name: "plain error", err: errors.New("boom"), want: exitGeneral},
+		{name: "explicit code", err: failf(exitNoDaemon, "down"), want: exitNoDaemon},
+		{name: "silent exit", err: silentExit(exitTimeout), want: exitTimeout},
+		{
+			name: "wrapped explicit code",
+			err:  errors.Join(errors.New("context"), failf(exitConflict, "taken")),
+			want: exitConflict,
+		},
+		{
+			name: "daemon conflict without an explicit code",
+			err:  &protocol.Error{Code: protocol.CodeConflict, Message: "taken"},
+			want: exitConflict,
+		},
+		{
+			name: "other daemon errors are general failures",
+			err:  &protocol.Error{Code: protocol.CodeNotFound, Message: "missing"},
+			want: exitGeneral,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := exitCodeFor(tc.err); got != tc.want {
+				t.Fatalf("exitCodeFor(%v) = %d, want %d", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestErrorMessage(t *testing.T) {
+	if msg := errorMessage(nil); msg != "" {
+		t.Fatalf("errorMessage(nil) = %q, want empty", msg)
+	}
+	if msg := errorMessage(silentExit(exitTimeout)); msg != "" {
+		t.Fatalf("a silent exit would print %q; it should print nothing", msg)
+	}
+	if msg := errorMessage(failf(exitGeneral, "something broke")); msg != "something broke" {
+		t.Fatalf("errorMessage = %q", msg)
+	}
+}
+
+// The exit error has to keep errors.As working through it, which is what lets
+// commands inspect a daemon code after wrapping.
+func TestExitErrorUnwraps(t *testing.T) {
+	inner := &protocol.Error{Code: protocol.CodeTooLarge, Message: "too big"}
+	wrapped := fail(exitGeneral, inner)
+
+	var pe *protocol.Error
+	if !errors.As(wrapped, &pe) {
+		t.Fatal("errors.As could not reach the protocol error")
+	}
+	if pe.Code != protocol.CodeTooLarge {
+		t.Fatalf("code = %d, want %d", pe.Code, protocol.CodeTooLarge)
+	}
+	if code, ok := daemonCode(wrapped); !ok || code != protocol.CodeTooLarge {
+		t.Fatalf("daemonCode = (%d, %v)", code, ok)
+	}
+	if _, ok := daemonCode(errors.New("not from the daemon")); ok {
+		t.Fatal("daemonCode claimed a plain error came from the daemon")
+	}
+}
+
+func TestExitErrorNilReceiverIsSafe(t *testing.T) {
+	var nilErr *exitError
+	if got := nilErr.Error(); got != "<nil>" {
+		t.Errorf("nil *exitError.Error() = %q, want %q", got, "<nil>")
+	}
+	if got := nilErr.Unwrap(); got != nil {
+		t.Errorf("nil *exitError.Unwrap() = %v, want nil", got)
+	}
+}
+
+func TestExitErrorWithoutCauseRendersExitStatus(t *testing.T) {
+	err := silentExit(exitTimeout)
+	if got := err.Error(); got != "exit status 4" {
+		t.Errorf("Error() = %q, want %q", got, "exit status 4")
+	}
+}
+
+func TestHumanSince(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "0s", want: "just now"},
+		{in: "-5s", want: "just now"},
+		{in: "999ms", want: "just now"},
+		{in: "1s", want: "1s ago"},
+		{in: "40s", want: "40s ago"},
+		{in: "59s", want: "59s ago"},
+		{in: "60s", want: "1m ago"},
+		{in: "3m", want: "3m ago"},
+		{in: "59m59s", want: "59m ago"},
+		{in: "1h", want: "1h ago"},
+		{in: "23h", want: "23h ago"},
+		{in: "24h", want: "1d ago"},
+		{in: "72h", want: "3d ago"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			d := mustParseDuration(t, tc.in)
+			if got := humanSince(d); got != tc.want {
+				t.Fatalf("humanSince(%s) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRelTime(t *testing.T) {
+	if got := relTime(""); got != "unknown" {
+		t.Fatalf("relTime(\"\") = %q, want unknown", got)
+	}
+	if got := relTime("not a timestamp"); got != "not a timestamp" {
+		t.Fatalf("relTime of an unparseable value = %q, want it echoed back", got)
 	}
 }

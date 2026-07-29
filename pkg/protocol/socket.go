@@ -1,15 +1,14 @@
-// Package protocol defines the wire format and socket transport for tether.
 package protocol
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
 	"net"
 	"os"
 	"path/filepath"
 )
 
 // SocketPath resolves where the socket should live based on the hierarchy
+// TETHER_SOCK, then $XDG_RUNTIME_DIR/tether/sock, then ~/.tether/sock.
 func SocketPath() (string, error) {
 	if sock := os.Getenv("TETHER_SOCK"); sock != "" {
 		return sock, nil
@@ -27,28 +26,43 @@ func SocketPath() (string, error) {
 	return filepath.Join(home, ".tether", "sock"), nil
 }
 
-// Listen creates the secure 0700 directory and binds a 0600 socket
+// DBPath resolves where the sqlite database should live: TETHER_DB if set,
+// otherwise ~/.tether/tether.db. The ~/.tether directory is created with 0700
+// so the message store is only readable by its owner.
+func DBPath() (string, error) {
+	if db := os.Getenv("TETHER_DB"); db != "" {
+		return db, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not find home dir: %w", err)
+	}
+
+	dir := filepath.Join(home, ".tether")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("mkdir: %w", err)
+	}
+
+	return filepath.Join(dir, "tether.db"), nil
+}
+
+// Listen creates the private 0700 directory that holds the socket, removes
+// any stale socket file, and binds inside it (see bindSocket for the
+// platform-specific file permissions).
 func Listen(path string) (net.Listener, error) {
 	dir := filepath.Dir(path)
 
-	// 0700: only the owner can read, write or enter this directory
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir: %w", err)
 	}
 
-	// Remove any existing dead socket file
 	_ = os.Remove(path)
 
-	// Umask 0177 strips all group.other permissions and execute bits
-	// 0777 - 0177 = 0600
-	oldMask := unix.Umask(0177)
-	defer unix.Umask(oldMask) // restore immediately
-
-	listener, err := net.Listen("unix", path)
+	listener, err := bindSocket(path)
 	if err != nil {
 		return nil, fmt.Errorf("listen: %w", err)
 	}
 
 	return listener, nil
-
 }
