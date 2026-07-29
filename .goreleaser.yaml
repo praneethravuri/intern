@@ -1,0 +1,45 @@
+version: 2
+
+# CGO_ENABLED=0 and -trimpath match `make build`/`make cross` exactly (Makefile).
+# main.version gets the "v" prefix back so a release binary and a `git describe`
+# local build report the same shape.
+builds:
+  - id: tether
+    main: ./cmd/tether
+    binary: tether
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: -s -w -X main.version=v{{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+  - id: tetherd
+    main: ./cmd/tetherd
+    binary: tetherd
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: -s -w -X main.version=v{{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+# One archive per platform holding both binaries, so a single download
+# installs the pair. Name has no version in it, so install.sh can use the
+# stable /releases/latest/download/ and /releases/download/<tag>/ URLs with
+# no GitHub API call.
+archives:
+  - id: tether
+    ids: [tether, tetherd]
+    name_template: "tether_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt

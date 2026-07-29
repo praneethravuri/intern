@@ -1,5 +1,11 @@
 # tether
 
+[![CI](https://img.shields.io/github/actions/workflow/status/praneethravuri/tether/go.yml?branch=main&style=flat-square&label=CI)](https://github.com/praneethravuri/tether/actions/workflows/go.yml)
+[![Release](https://img.shields.io/github/v/release/praneethravuri/tether?style=flat-square)](https://github.com/praneethravuri/tether/releases/latest)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square)](#install)
+[![Go](https://img.shields.io/github/go-mod/go-version/praneethravuri/tether?style=flat-square)](go.mod)
+[![License](https://img.shields.io/github/license/praneethravuri/tether?style=flat-square)](LICENSE)
+
 Every coding agent runs in a silo. Claude Code cannot see your Codex session, Codex cannot message your Aider session, and each harness ships its own private session registry and mailbox that none of the others can read. You are the integration layer: you copy an answer out of one terminal and paste it into another. tether replaces that with a local message bus — a background daemon (`tetherd`) that owns a SQLite mailbox, and a CLI (`tether`) that any agent, in any harness, can drive from the shell to register a name, send mail, block until mail arrives, and read it.
 
 Nothing wraps how you launch your agents. You keep running `claude`, `codex`, `aider` and everything else exactly as you do now; tether is a command they can call, not a harness they run inside.
@@ -9,8 +15,7 @@ Nothing wraps how you launch your agents. You keep running `claude`, `codex`, `a
 Install both binaries, then start the daemon once and leave it running:
 
 ```sh
-go install github.com/praneethravuri/tether/cmd/tetherd@latest
-go install github.com/praneethravuri/tether/cmd/tether@latest
+curl -fsSL https://praneethravuri.github.io/tether/install.sh | sh
 
 tetherd
 ```
@@ -174,17 +179,32 @@ Paste this into `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, or whatever file you
 ## Install
 
 ```sh
-go install github.com/praneethravuri/tether/cmd/tetherd@latest
-go install github.com/praneethravuri/tether/cmd/tether@latest
+curl -fsSL https://praneethravuri.github.io/tether/install.sh | sh
 ```
 
-From source:
+Installs `tether` and `tetherd` to `~/.local/bin` (override with `TETHER_INSTALL_DIR`),
+verifying each download against the release's checksums. Never uses sudo. macOS and
+Linux only; see below for Windows.
+
+Pin a version with `TETHER_VERSION=v0.1.0 curl ... | sh`. To uninstall, remove the
+two binaries and `~/.tether`.
+
+Other ways to install:
 
 ```sh
+# Go toolchain required
+go install github.com/praneethravuri/tether/cmd/tetherd@latest
+go install github.com/praneethravuri/tether/cmd/tether@latest
+
+# From source
 git clone https://github.com/praneethravuri/tether
 cd tether
 make build          # produces ./tether and ./tetherd, version stamped from git
 ./tether version
+
+# Prebuilt archive (also covers Windows)
+# download tether_<os>_<arch>.tar.gz|zip from
+# https://github.com/praneethravuri/tether/releases/latest
 ```
 
 With Docker. The image entrypoint is `tetherd`, so the socket and database need to live on a mounted volume for anything outside the container to reach them:
