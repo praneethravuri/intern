@@ -21,13 +21,28 @@ linters:
         text: "G304"
       # lock.go only opens/reads paths the daemon derives from its own
       # socket path, never from untrusted input.
-      - path: cmd/tetherd/lock\.go
+      - path: internal/daemon/lock\.go
         linters:
           - gosec
         text: "G304"
       # e2e tests exec the Go toolchain and the project's own built
-      # binaries, never arbitrary user-supplied input.
+      # binaries, and read only paths the test itself constructed, never
+      # arbitrary user-supplied input.
       - path: e2e/e2e_test\.go
         linters:
           - gosec
-        text: "G204"
+        text: "G204|G304"
+      # autostart.go re-execs os.Executable() (this same binary) and reads/
+      # writes only its own derived ~/.tether/daemon.log path, never
+      # untrusted input.
+      - path: cmd/tether/autostart(_test)?\.go
+        linters:
+          - gosec
+        text: "G204|G304"
+      # setIdentity's workspace parameter happens to be "storefront" at
+      # every current call site, but it is a general-purpose test helper --
+      # a future test naming a different workspace is the point of keeping it.
+      - path: cmd/tether/helper_test\.go
+        linters:
+          - unparam
+        text: "setIdentity"

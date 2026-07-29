@@ -1,4 +1,4 @@
-package main
+package daemon
 
 import (
 	"context"
@@ -244,7 +244,7 @@ func TestRegister(t *testing.T) {
 	c := ts.dial()
 
 	got := c.register("alice", "proj", "sess-1")
-	want := protocol.RegisterResult{Address: "alice@proj", Harness: "test", Created: true}
+	want := protocol.RegisterResult{Address: "alice@proj", Name: "alice", Harness: "test", Created: true}
 	if got != want {
 		t.Fatalf("register result = %+v, want %+v", got, want)
 	}
@@ -273,11 +273,134 @@ func TestRegister_MissingFields(t *testing.T) {
 	ts := newTestServer(t, nil)
 	c := ts.dial()
 
-	_ = c.mustFail(protocol.MethodRegister, protocol.RegisterParams{Workspace: "proj"}, protocol.CodeBadRequest)
+	// An empty Name is valid now -- it means "resolve or mint one" -- so only
+	// workspace and a malformed explicit name are still rejected.
 	_ = c.mustFail(protocol.MethodRegister, protocol.RegisterParams{Name: "alice"}, protocol.CodeBadRequest)
 	_ = c.mustFail(protocol.MethodRegister, protocol.RegisterParams{Name: "a@b", Workspace: "proj"}, protocol.CodeBadRequest)
 	// Absent params block at all.
 	_ = c.mustFail(protocol.MethodRegister, nil, protocol.CodeBadRequest)
+}
+
+func TestRegister_NameTooLongIsRejected(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	longName := strings.Repeat("a", 33)
+	_ = c.mustFail(protocol.MethodRegister, protocol.RegisterParams{
+		Name: longName, Workspace: "proj", SessionID: "sess-1",
+	}, protocol.CodeBadRequest)
+}
+
+// TestRegister_EmptyNameMints proves an empty Name with no existing session
+// registration mints "<harness>-<hex4>" instead of failing.
+func TestRegister_EmptyNameMints(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	got := c.register("", "proj", "sess-1")
+	if got.Name == "" {
+		t.Fatal("empty Name register did not mint a name")
+	}
+	if !strings.HasPrefix(got.Name, "test-") {
+		t.Fatalf("minted name = %q, want a test-<hex4> shape", got.Name)
+	}
+	if !got.Created {
+		t.Fatal("first-ever registration for this session reported Created=false")
+	}
+	if got.Address != got.Name+"@proj" {
+		t.Fatalf("address = %q, want %s@proj", got.Address, got.Name)
+	}
+}
+
+// TestRegister_EmptyNameResolvesExistingSession proves a session that
+// already registered resolves back to its own name on a later empty-Name
+// register, rather than minting a second identity.
+func TestRegister_EmptyNameResolvesExistingSession(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	c.register("alice", "proj", "sess-1")
+
+	got := c.register("", "proj", "sess-1")
+	if got.Name != "alice" {
+		t.Fatalf("empty-Name register resolved to %q, want alice", got.Name)
+	}
+	if got.Created {
+		t.Fatal("resolving an existing session reported Created=true")
+	}
+	if got.Renamed {
+		t.Fatal("resolving to the same name should not report Renamed")
+	}
+}
+
+// TestRegister_ExplicitNameRenamesAndMovesMail is the headline rename
+// scenario: registering a different explicit name from a session that
+// already holds one renames in place and carries pending mail along, rather
+// than leaving an orphaned second identity.
+func TestRegister_ExplicitNameRenamesAndMovesMail(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	c.register("alice", "proj", "sess-1")
+	c.register("bob", "proj", "sess-2")
+	c.mustCall(protocol.MethodSend, protocol.SendParams{
+		FromName: "bob", FromWorkspace: "proj", ToName: "alice", ToWorkspace: "proj", Body: "hi",
+	}, nil)
+
+	got := c.register("frontend", "proj", "sess-1")
+	if !got.Renamed {
+		t.Fatal("registering a different name from an existing session did not report Renamed")
+	}
+	if got.Created {
+		t.Fatal("a rename reported Created=true")
+	}
+	if got.Name != "frontend" {
+		t.Fatalf("Name = %q, want frontend", got.Name)
+	}
+
+	_ = c.mustFail(protocol.MethodExplain,
+		protocol.StatusParams{Name: "alice", Workspace: "proj"}, protocol.CodeNotFound)
+
+	var st protocol.StatusResult
+	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "frontend", Workspace: "proj"}, &st)
+	if st.Agent.Pending != 1 {
+		t.Fatalf("frontend pending = %d, want 1 (mail must follow the rename)", st.Agent.Pending)
+	}
+}
+
+// TestRegister_RenameOntoALiveNameConflictsWithSuggestion proves a rename
+// that collides with a different live session's name 409s with a free
+// alternative suggested in the message.
+func TestRegister_RenameOntoALiveNameConflictsWithSuggestion(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	c.register("alice", "proj", "sess-1")
+	c.register("bob", "proj", "sess-2")
+
+	e := c.mustFail(protocol.MethodRegister, protocol.RegisterParams{
+		Name: "bob", Workspace: "proj", SessionID: "sess-1",
+	}, protocol.CodeConflict)
+	if !strings.Contains(e.Message, "bob-2") {
+		t.Fatalf("conflict message %q does not suggest a free alternative", e.Message)
+	}
+}
+
+// TestRegister_DuplicateNameConflictSuggestsAlternative is the same
+// suggestion behaviour for a plain (non-rename) conflict.
+func TestRegister_DuplicateNameConflictSuggestsAlternative(t *testing.T) {
+	ts := newTestServer(t, nil)
+
+	a := ts.dial()
+	a.register("alice", "proj", "sess-1")
+
+	b := ts.dial()
+	e := b.mustFail(protocol.MethodRegister, protocol.RegisterParams{
+		Name: "alice", Workspace: "proj", Harness: "test", SessionID: "sess-2",
+	}, protocol.CodeConflict)
+	if !strings.Contains(e.Message, "alice-2") {
+		t.Fatalf("conflict message %q does not suggest a free alternative", e.Message)
+	}
 }
 
 // implausiblePID is large enough that no supported platform will ever hand
@@ -312,7 +435,7 @@ func TestRegister_LivePidRecordsPidStart(t *testing.T) {
 	c.register("alice", "proj", "s1") // client.register uses os.Getpid(), which is alive
 
 	var st protocol.StatusResult
-	c.mustCall(protocol.MethodStatus, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.PID != os.Getpid() {
 		t.Fatalf("stored pid = %d, want %d", st.Agent.PID, os.Getpid())
 	}
@@ -348,7 +471,7 @@ func TestRegister_DeadIncumbentReclaimedImmediately(t *testing.T) {
 	}
 
 	var st protocol.StatusResult
-	c.mustCall(protocol.MethodStatus, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.PID != os.Getpid() {
 		t.Fatalf("reclaim did not update the stored pid: %+v", st.Agent)
 	}
@@ -439,7 +562,7 @@ func TestActivityKeepsAgentAliveAndNameUnstealable(t *testing.T) {
 	}, &protocol.InboxResult{})
 
 	var who protocol.WhoResult
-	c.mustCall(protocol.MethodWho, protocol.WhoParams{Workspace: "proj"}, &who)
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
 	found := false
 	for _, a := range who.Agents {
 		if a.Name == "alice" {
@@ -785,28 +908,28 @@ func TestWhoStatus(t *testing.T) {
 	c.register("bob", "other", "s2")
 
 	var who protocol.WhoResult
-	c.mustCall(protocol.MethodWho, protocol.WhoParams{Workspace: "proj"}, &who)
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
 	if len(who.Agents) != 1 || who.Agents[0].Address != "alice@proj" {
 		t.Fatalf("who(proj) = %+v, want just alice@proj", who.Agents)
 	}
 
-	c.mustCall(protocol.MethodWho, protocol.WhoParams{All: true}, &who)
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{All: true}, &who)
 	if len(who.Agents) != 2 {
 		t.Fatalf("who(all) = %d agents, want 2", len(who.Agents))
 	}
 
 	var st protocol.StatusResult
-	c.mustCall(protocol.MethodStatus, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.Address != "alice@proj" {
 		t.Fatalf("status agent = %+v", st.Agent)
 	}
 	if _, err := time.Parse(time.RFC3339, st.Agent.LastSeen); err != nil {
 		t.Fatalf("last_seen %q is not RFC3339: %v", st.Agent.LastSeen, err)
 	}
-	_ = c.mustFail(protocol.MethodStatus, protocol.StatusParams{Name: "ghost", Workspace: "proj"}, protocol.CodeNotFound)
+	_ = c.mustFail(protocol.MethodExplain, protocol.StatusParams{Name: "ghost", Workspace: "proj"}, protocol.CodeNotFound)
 }
 
-// TestWho_AllWithExplicitWorkspaceIsNotDiscarded is the P1 fix: handleWho
+// TestWho_AllWithExplicitWorkspaceIsNotDiscarded is the P1 fix: handleLs
 // used to blank the workspace unconditionally whenever --all was set, even
 // when the caller ALSO named an explicit --workspace, silently widening the
 // query to every workspace. --all and --workspace must compose: an explicit
@@ -818,13 +941,13 @@ func TestWho_AllWithExplicitWorkspaceIsNotDiscarded(t *testing.T) {
 	c.register("carol", "other", "s2")
 
 	var who protocol.WhoResult
-	c.mustCall(protocol.MethodWho, protocol.WhoParams{All: true, Workspace: "proj"}, &who)
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{All: true, Workspace: "proj"}, &who)
 	if len(who.Agents) != 1 || who.Agents[0].Address != "alice@proj" {
 		t.Fatalf("who(all=true, workspace=proj) = %+v, want just alice@proj", who.Agents)
 	}
 
 	// Sanity: --all with no explicit workspace still means every workspace.
-	c.mustCall(protocol.MethodWho, protocol.WhoParams{All: true}, &who)
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{All: true}, &who)
 	if len(who.Agents) != 2 {
 		t.Fatalf("who(all=true) = %d agents, want 2", len(who.Agents))
 	}
@@ -860,7 +983,7 @@ func TestWho_BlockedStateClearsOnRelease(t *testing.T) {
 	}
 
 	var who protocol.WhoResult
-	setup.mustCall(protocol.MethodWho, protocol.WhoParams{Workspace: "proj"}, &who)
+	setup.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
 	bobState := ""
 	for _, a := range who.Agents {
 		if a.Name == "bob" {
@@ -879,7 +1002,7 @@ func TestWho_BlockedStateClearsOnRelease(t *testing.T) {
 		t.Fatal("wait did not wake after send")
 	}
 
-	setup.mustCall(protocol.MethodWho, protocol.WhoParams{Workspace: "proj"}, &who)
+	setup.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
 	for _, a := range who.Agents {
 		if a.Name == "bob" && a.State == "blocked" {
 			t.Fatalf("bob still reads as blocked after the wait returned: %+v", who.Agents)
@@ -1073,7 +1196,7 @@ func TestConcurrentClients(t *testing.T) {
 	}
 
 	var who protocol.WhoResult
-	setup.mustCall(protocol.MethodWho, protocol.WhoParams{Workspace: workspace}, &who)
+	setup.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: workspace}, &who)
 	if len(who.Agents) != clients+1 {
 		t.Fatalf("who = %d agents, want %d", len(who.Agents), clients+1)
 	}
@@ -1293,7 +1416,7 @@ func TestHandleWait_PanicStillReleasesTheWaiter(t *testing.T) {
 
 	// The server is still usable: a fresh wait on the same address blocks
 	// normally rather than tripping over a leftover entry.
-	req2 := protocol.Request{ID: "2", Method: protocol.MethodWho}
+	req2 := protocol.Request{ID: "2", Method: protocol.MethodLs}
 	req2.Params, _ = json.Marshal(protocol.WhoParams{Workspace: "proj"})
 	resp2 := srv.dispatch(context.Background(), req2, 0)
 	if resp2.Error == nil || resp2.Error.Code != protocol.CodeInternal {
@@ -1575,7 +1698,7 @@ func TestRegisterSanitisesMetadata(t *testing.T) {
 	}, &protocol.RegisterResult{})
 
 	var who protocol.WhoResult
-	c.mustCall(protocol.MethodWho, protocol.WhoParams{Workspace: "proj"}, &who)
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
 	if len(who.Agents) != 1 {
 		t.Fatalf("who = %d agents, want 1", len(who.Agents))
 	}
@@ -1587,7 +1710,7 @@ func TestRegisterSanitisesMetadata(t *testing.T) {
 	}
 
 	var st protocol.StatusResult
-	c.mustCall(protocol.MethodStatus, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
 
 	// A same-session re-register must still be recognised as idempotent even
 	// though the session id went through stripControl -- sanitising must not

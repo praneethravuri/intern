@@ -22,7 +22,7 @@ func TestSendWithAPositionalBody(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K1QW8Z3M4T7V9XBCDEF2GH"}))
 
-	r := mustRun(t, newSendCmd(), "", "--to", "backend", "the API contract changed")
+	r := mustRun(t, newSendCmd(), "", "backend", "the API contract changed")
 
 	params := decodeParams[protocol.SendParams](t, d.registerThen(t, protocol.MethodSend))
 	if params.FromName != "frontend" || params.FromWorkspace != "storefront" {
@@ -47,7 +47,7 @@ func TestSendToAnotherWorkspace(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K"}))
 
-	mustRun(t, newSendCmd(), "", "--to", "backend@warehouse", "--kind", "handoff",
+	mustRun(t, newSendCmd(), "", "backend@warehouse", "--kind", "handoff",
 		"--reply-to", "01KPARENT", "hello")
 
 	params := decodeParams[protocol.SendParams](t, d.registerThen(t, protocol.MethodSend))
@@ -74,7 +74,7 @@ func TestSendBodyFileSurvivesByteForByte(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	mustRun(t, newSendCmd(), "", "--to", "backend", "--body-file", path)
+	mustRun(t, newSendCmd(), "", "backend", "--body-file", path)
 
 	params := decodeParams[protocol.SendParams](t, d.registerThen(t, protocol.MethodSend))
 	if params.Body != hostileBody {
@@ -87,7 +87,7 @@ func TestSendBodyFileDashReadsStdinByteForByte(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K"}))
 
-	mustRun(t, newSendCmd(), hostileBody, "--to", "backend", "--body-file", "-")
+	mustRun(t, newSendCmd(), hostileBody, "backend", "--body-file", "-")
 
 	params := decodeParams[protocol.SendParams](t, d.registerThen(t, protocol.MethodSend))
 	if params.Body != hostileBody {
@@ -102,7 +102,7 @@ func TestSendDoesNotTrimTheBody(t *testing.T) {
 	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K"}))
 
 	const body = "  leading and trailing whitespace  \n\n"
-	mustRun(t, newSendCmd(), body, "--to", "backend", "--body-file", "-")
+	mustRun(t, newSendCmd(), body, "backend", "--body-file", "-")
 
 	params := decodeParams[protocol.SendParams](t, d.registerThen(t, protocol.MethodSend))
 	if params.Body != body {
@@ -118,17 +118,17 @@ func TestSendRejectsAmbiguousAndMissingBodies(t *testing.T) {
 	}{
 		{
 			name: "both a positional body and a body file",
-			args: []string{"--to", "backend", "--body-file", "-", "inline body"},
+			args: []string{"backend", "--body-file", "-", "inline body"},
 			want: "not both",
 		},
 		{
 			name: "no body at all",
-			args: []string{"--to", "backend"},
+			args: []string{"backend"},
 			want: "no message body",
 		},
 		{
 			name: "an empty positional body",
-			args: []string{"--to", "backend", ""},
+			args: []string{"backend", ""},
 			want: "empty",
 		},
 		{
@@ -138,12 +138,12 @@ func TestSendRejectsAmbiguousAndMissingBodies(t *testing.T) {
 		},
 		{
 			name: "an unknown kind",
-			args: []string{"--to", "backend", "--kind", "shout", "a body"},
+			args: []string{"backend", "--kind", "shout", "a body"},
 			want: "unknown --kind",
 		},
 		{
 			name: "a body file that does not exist",
-			args: []string{"--to", "backend", "--body-file", "/no/such/file/anywhere"},
+			args: []string{"backend", "--body-file", "/no/such/file/anywhere"},
 			want: "cannot read the message body",
 		},
 	}
@@ -173,7 +173,7 @@ func TestSendMissingBodyErrorMentionsBodyFile(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	newFakeDaemon(t, okHandler(protocol.SendResult{}))
 
-	r := run(t, newSendCmd(), "", "--to", "backend")
+	r := run(t, newSendCmd(), "", "backend")
 	requireContains(t, r.err.Error(), "--body-file", "error")
 	requireContains(t, r.err.Error(), "stdin", "error")
 }
@@ -182,7 +182,7 @@ func TestSendEmptyStdinIsAnError(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	newFakeDaemon(t, okHandler(protocol.SendResult{}))
 
-	r := run(t, newSendCmd(), "", "--to", "backend", "--body-file", "-")
+	r := run(t, newSendCmd(), "", "backend", "--body-file", "-")
 	if r.err == nil {
 		t.Fatal("send accepted an empty body from stdin")
 	}
@@ -193,7 +193,7 @@ func TestSendJSON(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K1QW8Z3M4T7V9XBCDEF2GH"}))
 
-	r := mustRun(t, newSendCmd(), "", "--to", "backend", "--json", "hello")
+	r := mustRun(t, newSendCmd(), "", "backend", "--json", "hello")
 
 	var got protocol.SendResult
 	unmarshalJSON(t, r.stdout, &got)
@@ -213,7 +213,7 @@ func TestSendImplicitlyRegistersFirst(t *testing.T) {
 
 	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K"}))
 
-	mustRun(t, newSendCmd(), "", "--to", "backend", "hello")
+	mustRun(t, newSendCmd(), "", "backend", "hello")
 
 	sendReq := d.registerThen(t, protocol.MethodSend)
 
@@ -235,7 +235,7 @@ func TestSendImplicitlyRegistersFirst(t *testing.T) {
 
 // TestSendConflictExitsFive is the CLI-level half of the session-forgery
 // fix: a 409 specifically from the "send" call itself (a session mismatch,
-// see cmd/tetherd/server.go's authenticate) must exit 5, exactly like a
+// see internal/daemon/server.go's authenticate) must exit 5, exactly like a
 // register conflict does. The implicit register that precedes it succeeds
 // normally, so this exercises send's own authentication failure rather than
 // ensureRegistered's.
@@ -249,7 +249,7 @@ func TestSendConflictExitsFive(t *testing.T) {
 			"acting as frontend but a different session holds that name")
 	})
 
-	r := run(t, newSendCmd(), "", "--to", "backend", "hello")
+	r := run(t, newSendCmd(), "", "backend", "hello")
 	if r.err == nil {
 		t.Fatal("send succeeded despite a session conflict")
 	}
@@ -280,7 +280,7 @@ func TestSendWithoutADaemonExitsThree(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	noDaemon(t)
 
-	r := run(t, newSendCmd(), "", "--to", "backend", "hello")
+	r := run(t, newSendCmd(), "", "backend", "hello")
 	if got := r.exitCode(); got != exitNoDaemon {
 		t.Fatalf("exit code = %d, want %d", got, exitNoDaemon)
 	}
@@ -292,7 +292,7 @@ func TestSendKindsAreAccepted(t *testing.T) {
 			setIdentity(t, "frontend", "storefront")
 			d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K"}))
 
-			mustRun(t, newSendCmd(), "", "--to", "backend", "--kind", kind, "body")
+			mustRun(t, newSendCmd(), "", "backend", "--kind", kind, "body")
 
 			params := decodeParams[protocol.SendParams](t, d.registerThen(t, protocol.MethodSend))
 			if params.Kind != kind {
@@ -320,24 +320,6 @@ func TestSendPositionalTarget(t *testing.T) {
 		t.Fatalf("body = %q, want %q", params.Body, "hi")
 	}
 	requireContains(t, r.stdout, "backend@storefront", "stdout")
-}
-
-// TestSendDeprecatedToFlagStillWorks is the backward-compatibility half of
-// the same scenario: the old `--to` invocation must produce an identical
-// request.
-func TestSendDeprecatedToFlagStillWorks(t *testing.T) {
-	setIdentity(t, "frontend", "storefront")
-	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K"}))
-
-	mustRun(t, newSendCmd(), "", "--to", "backend", "hi")
-
-	params := decodeParams[protocol.SendParams](t, d.registerThen(t, protocol.MethodSend))
-	if params.ToName != "backend" || params.ToWorkspace != "storefront" {
-		t.Fatalf("to = %s@%s, want backend@storefront", params.ToName, params.ToWorkspace)
-	}
-	if params.Body != "hi" {
-		t.Fatalf("body = %q, want %q", params.Body, "hi")
-	}
 }
 
 // TestSendPositionalWithBodyFile covers the positional target combined with

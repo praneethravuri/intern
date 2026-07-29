@@ -114,7 +114,7 @@ func TestRegisterConflictExitsFive(t *testing.T) {
 	msg := r.err.Error()
 	requireContains(t, msg, "frontend@storefront", "error")
 	requireContains(t, msg, "pid 4242", "error")
-	requireContains(t, msg, "tether who", "error")
+	requireContains(t, msg, "tether ls", "error")
 }
 
 func TestRegisterWithoutADaemonExitsThree(t *testing.T) {
@@ -126,22 +126,25 @@ func TestRegisterWithoutADaemonExitsThree(t *testing.T) {
 	if got := r.exitCode(); got != exitNoDaemon {
 		t.Fatalf("exit code = %d, want %d", got, exitNoDaemon)
 	}
-	requireContains(t, r.err.Error(), "no tetherd running", "error")
+	requireContains(t, r.err.Error(), "no daemon running", "error")
 }
 
-// M3: resolveSelf no longer errors when no name is given anywhere -- it
-// derives one (see identity.go's derivedName) -- so register now succeeds
-// with a synthesised name instead of failing.
-func TestRegisterWithoutANameDerivesOne(t *testing.T) {
+// resolveSelf no longer errors, or derives anything, when no name is given
+// anywhere -- register sends an empty Name over the wire, and the daemon
+// resolves or mints one (see internal/daemon's mintName). The CLI reports
+// whatever name comes back.
+func TestRegisterWithoutANameLetsTheDaemonResolveOne(t *testing.T) {
 	setIdentity(t, "", "storefront")
 	clearHarnessEnv(t)
-	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Created: true}))
+	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{
+		Address: "claude-code-3f1a@storefront", Name: "claude-code-3f1a", Created: true,
+	}))
 
 	r := mustRun(t, newRegisterCmd(), "")
 
 	params := decodeParams[protocol.RegisterParams](t, d.only(t, protocol.MethodRegister))
-	if params.Name == "" {
-		t.Fatal("register sent an empty name")
+	if params.Name != "" {
+		t.Fatalf("register sent Name %q, want empty (resolve-or-mint)", params.Name)
 	}
-	requireContains(t, r.stdout, "registered", "stdout")
+	requireContains(t, r.stdout, "registered claude-code-3f1a@storefront", "stdout")
 }

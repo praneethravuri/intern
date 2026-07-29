@@ -37,21 +37,21 @@ func TestCallSendsTheRequestAndDecodesTheResult(t *testing.T) {
 func TestCallWithoutADaemonExplainsHowToStartOne(t *testing.T) {
 	noDaemon(t)
 
-	err := call(protocol.MethodWho, protocol.WhoParams{}, nil)
+	err := call(protocol.MethodLs, protocol.WhoParams{}, nil)
 	if err == nil {
 		t.Fatal("call succeeded with no daemon listening")
 	}
 	if got := exitCodeFor(err); got != exitNoDaemon {
 		t.Fatalf("exit code = %d, want %d", got, exitNoDaemon)
 	}
-	requireContains(t, err.Error(), "no tetherd running", "error")
-	requireContains(t, err.Error(), "tetherd", "error")
+	requireContains(t, err.Error(), "no daemon running", "error")
+	requireContains(t, err.Error(), "tether", "error")
 }
 
 func TestCallSurfacesDaemonErrorsWithTheirCode(t *testing.T) {
 	newFakeDaemon(t, errHandler(protocol.CodeNotFound, "no agent named ghost"))
 
-	err := call(protocol.MethodStatus, protocol.StatusParams{Name: "ghost"}, nil)
+	err := call(protocol.MethodExplain, protocol.StatusParams{Name: "ghost"}, nil)
 	if err == nil {
 		t.Fatal("call succeeded against an erroring daemon")
 	}
@@ -96,7 +96,7 @@ func TestCallOnMalformedResponses(t *testing.T) {
 			newRawDaemon(t, tc.raw)
 
 			var res protocol.WhoResult
-			err := call(protocol.MethodWho, protocol.WhoParams{}, &res)
+			err := call(protocol.MethodLs, protocol.WhoParams{}, &res)
 			if err == nil {
 				t.Fatal("call succeeded against a daemon speaking garbage")
 			}
@@ -111,7 +111,7 @@ func TestCallOnMalformedResponses(t *testing.T) {
 func TestCallWhenTheDaemonHangsUp(t *testing.T) {
 	newSilentDaemon(t)
 
-	err := call(protocol.MethodWho, protocol.WhoParams{}, nil)
+	err := call(protocol.MethodLs, protocol.WhoParams{}, nil)
 	if err == nil {
 		t.Fatal("call succeeded against a daemon that never answered")
 	}
@@ -128,7 +128,7 @@ func TestCallOnAnUnreadableResult(t *testing.T) {
 	})
 
 	var res protocol.WhoResult
-	err := call(protocol.MethodWho, protocol.WhoParams{}, &res)
+	err := call(protocol.MethodLs, protocol.WhoParams{}, &res)
 	if err == nil {
 		t.Fatal("call accepted a result of the wrong shape")
 	}
@@ -141,12 +141,12 @@ func TestCallIsNilSafe(t *testing.T) {
 		return protocol.Response{ID: req.ID}
 	})
 
-	if err := call(protocol.MethodWho, nil, nil); err != nil {
+	if err := call(protocol.MethodLs, nil, nil); err != nil {
 		t.Fatalf("call with nil params and nil result: %v", err)
 	}
 
 	var res protocol.WhoResult
-	if err := call(protocol.MethodWho, protocol.WhoParams{}, &res); err != nil {
+	if err := call(protocol.MethodLs, protocol.WhoParams{}, &res); err != nil {
 		t.Fatalf("call with an empty result body: %v", err)
 	}
 	if len(res.Agents) != 0 {
@@ -157,15 +157,39 @@ func TestCallIsNilSafe(t *testing.T) {
 // -- ensureRegistered ---------------------------------------------------------
 
 func TestEnsureRegisteredFiresARegisterCall(t *testing.T) {
-	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Created: true}))
+	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Name: "frontend", Created: true}))
 
-	if err := ensureRegistered("frontend", "storefront"); err != nil {
+	got, err := ensureRegistered("frontend", "storefront")
+	if err != nil {
 		t.Fatalf("ensureRegistered: %v", err)
+	}
+	if got != "frontend" {
+		t.Fatalf("ensureRegistered returned %q, want frontend", got)
 	}
 
 	params := decodeParams[protocol.RegisterParams](t, d.only(t, protocol.MethodRegister))
 	if params.Name != "frontend" || params.Workspace != "storefront" {
 		t.Fatalf("registered %s@%s, want frontend@storefront", params.Name, params.Workspace)
+	}
+}
+
+// TestEnsureRegisteredResolvesAnEmptyName proves an empty name is sent as-is
+// (letting the daemon resolve or mint one) and the daemon's answer is what
+// the caller gets back.
+func TestEnsureRegisteredResolvesAnEmptyName(t *testing.T) {
+	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Name: "claude-code-3f1a", Created: true}))
+
+	got, err := ensureRegistered("", "storefront")
+	if err != nil {
+		t.Fatalf("ensureRegistered: %v", err)
+	}
+	if got != "claude-code-3f1a" {
+		t.Fatalf("ensureRegistered returned %q, want the daemon-resolved name", got)
+	}
+
+	params := decodeParams[protocol.RegisterParams](t, d.only(t, protocol.MethodRegister))
+	if params.Name != "" {
+		t.Fatalf("register params carried Name %q, want empty (resolve-or-mint)", params.Name)
 	}
 }
 
@@ -176,7 +200,7 @@ func TestEnsureRegisteredFiresARegisterCall(t *testing.T) {
 func TestEnsureRegisteredSurfacesConflict(t *testing.T) {
 	newFakeDaemon(t, errHandler(protocol.CodeConflict, "taken"))
 
-	err := ensureRegistered("frontend", "storefront")
+	_, err := ensureRegistered("frontend", "storefront")
 	if err == nil {
 		t.Fatal("ensureRegistered succeeded despite a conflict")
 	}
@@ -192,8 +216,12 @@ func TestEnsureRegisteredSurfacesConflict(t *testing.T) {
 // what was actually asked for.
 func TestEnsureRegisteredSwallowsNonConflictFailures(t *testing.T) {
 	noDaemon(t)
-	if err := ensureRegistered("frontend", "storefront"); err != nil {
+	got, err := ensureRegistered("frontend", "storefront")
+	if err != nil {
 		t.Fatalf("ensureRegistered should swallow a no-daemon failure, got: %v", err)
+	}
+	if got != "frontend" {
+		t.Fatalf("ensureRegistered returned %q, want the original name unchanged", got)
 	}
 }
 

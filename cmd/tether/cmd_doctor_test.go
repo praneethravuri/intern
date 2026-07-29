@@ -16,7 +16,7 @@ func TestDoctorWithAHealthyDaemon(t *testing.T) {
 
 	r := mustRun(t, newDoctorCmd(), "")
 
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodWho))
+	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
 	if params.Workspace != "storefront" {
 		t.Fatalf("workspace = %q, want storefront", params.Workspace)
 	}
@@ -80,8 +80,8 @@ func TestDoctorWithoutADaemonDegradesAndExitsThree(t *testing.T) {
 	requireContains(t, out, "NOT reachable", "stdout")
 	requireContains(t, out, os.Getenv("TETHER_SOCK"), "stdout")
 	requireContains(t, out, "storefront", "stdout")
-	requireContains(t, out, "no tetherd running", "stdout")
-	requireContains(t, out, "tetherd", "stdout")
+	requireContains(t, out, "no daemon running", "stdout")
+	requireContains(t, out, "start it with `tether`", "stdout")
 
 	// The diagnosis is the output, so there is nothing extra to print.
 	if msg := errorMessage(r.err); msg != "" {
@@ -90,11 +90,9 @@ func TestDoctorWithoutADaemonDegradesAndExitsThree(t *testing.T) {
 }
 
 // A socket file with nobody behind it (e.g. a crashed daemon) must not be
-// diagnosed via os.Stat on the socket path: that call is documented to fail
-// on Windows (pkg/protocol/socket_windows.go, golang/go#57535), so doctor
-// dials instead and reports the same "not reachable" answer it would for a
-// socket path that was never created at all -- the two cases are not
-// reliably distinguishable cross-platform, so nothing pretends otherwise.
+// diagnosed via os.Stat on the socket path -- doctor dials instead and
+// reports the same "not reachable" answer it would for a socket path that
+// was never created at all.
 func TestDoctorSpotsAStaleSocket(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	clearHarnessEnv(t)
@@ -110,16 +108,13 @@ func TestDoctorSpotsAStaleSocket(t *testing.T) {
 	if got := r.exitCode(); got != exitNoDaemon {
 		t.Fatalf("exit code = %d, want %d", got, exitNoDaemon)
 	}
-	requireContains(t, r.stdout, "no tetherd running", "stdout")
+	requireContains(t, r.stdout, "no daemon running", "stdout")
 }
 
-// TestDoctorReportHasNoSocketExistsField is a direct check on the removal
-// pkg/protocol/socket_windows.go warns about: os.Stat on the socket path is
-// documented to fail on Windows (golang/go#57535), so doctorReport must not
-// carry a socket_exists field that only os.Stat could have populated. The
-// Go compiler already enforces this for any code in this module -- the
-// struct field is simply gone -- but this also nails down the --json wire
-// contract for external consumers who are not compiled against this repo.
+// TestDoctorReportHasNoSocketExistsField nails down the --json wire contract
+// for external consumers not compiled against this repo: doctorReport has no
+// socket_exists field, since only an os.Stat doctor deliberately avoids could
+// have populated one.
 func TestDoctorReportHasNoSocketExistsField(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	clearHarnessEnv(t)
@@ -150,9 +145,6 @@ func TestDoctorJSON(t *testing.T) {
 	if got.Harness != harnessClaudeCode || got.SessionID != "sess-123" {
 		t.Fatalf("harness = %q session = %q", got.Harness, got.SessionID)
 	}
-	if got.Self != "frontend" {
-		t.Fatalf("self = %q, want frontend", got.Self)
-	}
 	if len(got.Agents) != 2 {
 		t.Fatalf("got %d agents, want 2", len(got.Agents))
 	}
@@ -178,7 +170,7 @@ func TestDoctorJSONWithoutADaemon(t *testing.T) {
 	if got.Agents == nil {
 		t.Fatal("agents = null, want an empty array")
 	}
-	requireContains(t, got.Error, "no tetherd running", "error field")
+	requireContains(t, got.Error, "no daemon running", "error field")
 	if code := r.exitCode(); code != exitNoDaemon {
 		t.Fatalf("exit code = %d, want %d", code, exitNoDaemon)
 	}

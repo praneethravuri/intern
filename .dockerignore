@@ -23,7 +23,6 @@ LICENSE
 /tether
 /tetherd
 dist/
-*.exe
 *.test
 *-go-tmp-umask
 *.go.[0-9]*

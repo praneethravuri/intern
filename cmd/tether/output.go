@@ -29,7 +29,7 @@ type identityFlags struct {
 // addIdentity registers --as and --workspace on cmd.
 func (f *identityFlags) addIdentity(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.name, "as", "",
-		"agent name to act as (defaults to $"+envName+")")
+		"agent name to act as (defaults to whatever this session already registered, or a minted name)")
 	cmd.Flags().StringVar(&f.workspace, "workspace", "",
 		"workspace to use (defaults to the git root of the current directory)")
 }

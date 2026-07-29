@@ -58,7 +58,7 @@ func runExplain(cmd *cobra.Command, args []string, opts *identityFlags) error {
 		// Only the self path registers implicitly; inspecting another agent is a read.
 		name, workspace, err = resolveSelf(opts.name, opts.workspace)
 		if err == nil {
-			err = ensureRegistered(name, workspace)
+			name, err = ensureRegistered(name, workspace)
 		}
 	}
 	if err != nil {
@@ -66,7 +66,7 @@ func runExplain(cmd *cobra.Command, args []string, opts *identityFlags) error {
 	}
 
 	var res protocol.StatusResult
-	if err := call(protocol.MethodStatus,
+	if err := call(protocol.MethodExplain,
 		protocol.StatusParams{Name: name, Workspace: workspace}, &res); err != nil {
 		return err
 	}

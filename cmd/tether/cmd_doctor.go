@@ -12,9 +12,9 @@ import (
 
 const doctorLong = `Check that tether is actually working, and say so plainly when it is not.
 
-doctor reports the socket it would talk to, whether tetherd is answering, which
-workspace this directory resolves to, which harness it detects, and every agent
-registered here.
+doctor reports the socket it would talk to, whether the daemon is answering,
+which workspace this directory resolves to, which harness it detects, and
+every agent registered here.
 
 Nothing currently pushes a notification when mail arrives, so every agent
 sees a message only if it polls with ` + "`tether inbox`" + ` or blocks on
@@ -30,7 +30,6 @@ type doctorReport struct {
 	Cwd           string               `json:"cwd"`
 	Harness       string               `json:"harness"`
 	SessionID     string               `json:"session_id,omitempty"`
-	Self          string               `json:"self,omitempty"`
 	Agents        []protocol.AgentView `json:"agents"`
 	Warnings      []string             `json:"warnings"`
 	Error         string               `json:"error,omitempty"`
@@ -80,7 +79,6 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 	report := doctorReport{
 		Agents:   []protocol.AgentView{},
 		Warnings: []string{},
-		Self:     env(envName),
 	}
 
 	if sock, err := protocol.SocketPath(); err == nil {
@@ -110,7 +108,8 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 	}
 
 	var who protocol.WhoResult
-	err := call(protocol.MethodWho, protocol.WhoParams{Workspace: report.Workspace}, &who)
+	err := doCall(protocol.MethodLs, protocol.WhoParams{Workspace: report.Workspace}, &who,
+		defaultCallTimeout, false)
 	switch err {
 	case nil:
 		report.DaemonRunning = true
@@ -151,10 +150,6 @@ func writeDoctorReport(cmd *cobra.Command, r doctorReport) error {
 		{"cwd", dash(r.Cwd)},
 		{"harness", dash(harness)},
 	}
-	if r.Self != "" {
-		pairs = append(pairs, [2]string{"registered as", sanitizeTerminal(r.Self) + " (from $" + envName + ")"})
-	}
-
 	if _, err := fmt.Fprintln(out, "tether doctor"); err != nil {
 		return err
 	}
@@ -163,7 +158,7 @@ func writeDoctorReport(cmd *cobra.Command, r doctorReport) error {
 	}
 
 	if !r.DaemonRunning {
-		_, err := fmt.Fprintln(out, "\nno tetherd running — start it with `tetherd`")
+		_, err := fmt.Fprintln(out, "\nno daemon running — start it with `tether`")
 		return err
 	}
 

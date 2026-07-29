@@ -39,7 +39,6 @@ to thread an answer onto the message it answers.`
 
 type sendOptions struct {
 	identityFlags
-	to       string
 	kind     string
 	replyTo  string
 	bodyFile string
@@ -58,12 +57,7 @@ func newSendCmd() *cobra.Command {
 			"  tether send frontend --kind answer --reply-to 01K1QW8Z3M4T7V9XBCDEF2GH --body-file -\n" +
 			"  tether send '*' \"heads up, deploying in 5\"\n" +
 			"  tether send all \"heads up, deploying in 5\"",
-		Args: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(opts.to) != "" {
-				return cobra.MaximumNArgs(1)(cmd, args)
-			}
-			return cobra.RangeArgs(1, 2)(cmd, args)
-		},
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSend(cmd, args, &opts)
 		},
@@ -71,9 +65,6 @@ func newSendCmd() *cobra.Command {
 
 	opts.addIdentity(cmd)
 	opts.addJSON(cmd)
-	cmd.Flags().StringVar(&opts.to, "to", "",
-		"recipient address, name or name@workspace (deprecated: pass it as the first argument instead)")
-	_ = cmd.Flags().MarkHidden("to")
 	cmd.Flags().StringVar(&opts.kind, "kind", kindNote,
 		"message kind: "+strings.Join(validKinds, ", "))
 	cmd.Flags().StringVar(&opts.replyTo, "reply-to", "", "id of the message this replies to")
@@ -83,15 +74,6 @@ func newSendCmd() *cobra.Command {
 	return quiet(cmd)
 }
 
-// sendTarget resolves the recipient from the positional form or the
-// deprecated --to flag, which wins when both are given.
-func sendTarget(toFlag string, args []string) (target string, bodyArgs []string) {
-	if t := strings.TrimSpace(toFlag); t != "" {
-		return t, args
-	}
-	return args[0], args[1:]
-}
-
 // isBroadcastTarget reports whether name is a reserved broadcast marker
 // (exact match, not a prefix — "allocator" is not a broadcast).
 func isBroadcastTarget(name string) bool {
@@ -99,7 +81,7 @@ func isBroadcastTarget(name string) bool {
 }
 
 func runSend(cmd *cobra.Command, args []string, opts *sendOptions) error {
-	target, bodyArgs := sendTarget(opts.to, args)
+	target, bodyArgs := args[0], args[1:]
 
 	kind, err := normaliseKind(opts.kind)
 	if err != nil {
@@ -121,7 +103,8 @@ func runSend(cmd *cobra.Command, args []string, opts *sendOptions) error {
 		return err
 	}
 
-	if err := ensureRegistered(fromName, workspace); err != nil {
+	fromName, err = ensureRegistered(fromName, workspace)
+	if err != nil {
 		return err
 	}
 	_, session := currentSession()
