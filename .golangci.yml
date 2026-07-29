@@ -25,3 +25,9 @@ linters:
         linters:
           - gosec
         text: "G304"
+      # e2e tests exec the Go toolchain and the project's own built
+      # binaries, never arbitrary user-supplied input.
+      - path: e2e/e2e_test\.go
+        linters:
+          - gosec
+        text: "G204"
