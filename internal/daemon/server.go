@@ -25,6 +25,7 @@ import (
 const (
 	defaultStaleAfter      = 5 * time.Minute
 	defaultDeadAfter       = 24 * time.Hour
+	defaultRetainMessages  = 7 * 24 * time.Hour
 	defaultSweepInterval   = 5 * time.Minute
 	defaultShutdownTimeout = 5 * time.Second
 	defaultRequestTimeout  = 30 * time.Second
@@ -52,6 +53,11 @@ type Config struct {
 	// DeadAfter is how old an unacked message may get before the sweeper
 	// retires it.
 	DeadAfter time.Duration
+	// RetainMessages is how long read or dead mail stays in the database
+	// before the sweeper deletes it outright, so the file plateaus instead
+	// of growing forever. Separate from DeadAfter: unread mail is marked
+	// dead first, then deleted once it's also past this window.
+	RetainMessages time.Duration
 	// SweepInterval is how often the sweeper runs.
 	SweepInterval time.Duration
 	// ShutdownTimeout bounds how long Serve waits for in-flight connections.
@@ -74,6 +80,7 @@ func DefaultConfig() Config {
 	return Config{
 		StaleAfter:      defaultStaleAfter,
 		DeadAfter:       defaultDeadAfter,
+		RetainMessages:  defaultRetainMessages,
 		SweepInterval:   defaultSweepInterval,
 		ShutdownTimeout: defaultShutdownTimeout,
 		RequestTimeout:  defaultRequestTimeout,
@@ -91,6 +98,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.DeadAfter <= 0 {
 		c.DeadAfter = d.DeadAfter
+	}
+	if c.RetainMessages <= 0 {
+		c.RetainMessages = d.RetainMessages
 	}
 	if c.SweepInterval <= 0 {
 		c.SweepInterval = d.SweepInterval
@@ -163,7 +173,7 @@ func (s *Server) Config() Config { return s.cfg }
 // ShutdownTimeout, then returns once all goroutines have stopped.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	if ln == nil {
-		return errors.New("tetherd: nil listener")
+		return errors.New("tether: nil listener")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -255,8 +265,11 @@ func (s *Server) awaitConns() {
 }
 
 // sweepLoop retires unacked mail, old observations, and dead agent rows that
-// nobody ever came back for.
+// nobody ever came back for. It sweeps once immediately, before the first
+// tick, so a daemon that restarts often still prunes something.
 func (s *Server) sweepLoop(ctx context.Context) {
+	s.sweepOnce(ctx)
+
 	t := time.NewTicker(s.cfg.SweepInterval)
 	defer t.Stop()
 
@@ -277,6 +290,14 @@ func (s *Server) sweepOnce(ctx context.Context) {
 		}
 	} else if n > 0 {
 		s.log.Printf("swept %d dead message(s)", n)
+	}
+
+	if n, err := s.store.PurgeMessages(ctx, s.cfg.RetainMessages); err != nil {
+		if ctx.Err() == nil {
+			s.log.Printf("purge retired messages failed: %v", err)
+		}
+	} else if n > 0 {
+		s.log.Printf("purged %d message(s)", n)
 	}
 
 	if n, err := s.store.SweepObservations(ctx, s.cfg.DeadAfter); err != nil {
@@ -471,6 +492,8 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 		return s.handleLs(ctx, req)
 	case protocol.MethodExplain:
 		return s.handleExplain(ctx, req)
+	case protocol.MethodStats:
+		return s.handleStats(ctx, req)
 	default:
 		return protocol.Fail(req.ID, protocol.CodeBadRequest, "unknown method: "+clip(req.Method))
 	}
@@ -1024,6 +1047,19 @@ func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protoc
 	blocked := s.waiters.Count(a.Address()) > 0
 	sr := computeState(a, last, blocked, time.Now())
 	return protocol.OK(req.ID, protocol.StatusResult{Agent: agentView(a, sr, pending)})
+}
+
+// handleStats reports row counts for doctor's database health line.
+func (s *Server) handleStats(ctx context.Context, req protocol.Request) protocol.Response {
+	st, err := s.store.Stats(ctx)
+	if err != nil {
+		return s.fail(req.ID, err, "stats")
+	}
+	return protocol.OK(req.ID, protocol.StatsResult{
+		Messages:     st.Messages,
+		Agents:       st.Agents,
+		Observations: st.Observations,
+	})
 }
 
 // -- errors -----------------------------------------------------------------

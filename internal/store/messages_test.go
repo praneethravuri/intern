@@ -579,6 +579,64 @@ func TestSweepDead(t *testing.T) {
 	}
 }
 
+// TestPurgeMessages proves the database plateaus instead of growing forever:
+// read (acked) and dead mail past the retention window is actually deleted,
+// not just marked, while pending mail is never touched regardless of age.
+func TestPurgeMessages(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	clk := newClock()
+	s.Now = clk.Now
+	pair(t, s)
+
+	ackedID := mustSend(t, s, note("read long ago"))
+	_ = mustSend(t, s, note("never read"))
+	if _, err := s.Ack(ctx, "ws", "bob", []string{ackedID}); err != nil {
+		t.Fatalf("Ack: %v", err)
+	}
+	clk.advance(time.Second)
+	if _, err := s.SweepDead(ctx, 0); err != nil { // cutoff = now, strictly after the dead message's created_at
+		t.Fatalf("SweepDead: %v", err)
+	}
+
+	clk.advance(6 * 24 * time.Hour)
+	pendingID := mustSend(t, s, note("still pending"))
+
+	const retention = 7 * 24 * time.Hour
+	clk.advance(2 * 24 * time.Hour) // ackedID/deadID now 8 days old, pendingID 2 days old
+
+	n, err := s.PurgeMessages(ctx, retention)
+	if err != nil {
+		t.Fatalf("PurgeMessages: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("PurgeMessages = %d, want 2 (the acked and dead messages)", n)
+	}
+
+	replay, err := s.Replay(ctx, "ws", "bob", 10)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	for _, m := range replay {
+		if m.ID == ackedID {
+			t.Error("purged acked message still shows up in Replay")
+		}
+	}
+
+	inbox, err := s.Inbox(ctx, "ws", "bob", 10)
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	if len(inbox) != 1 || inbox[0].ID != pendingID {
+		t.Fatalf("Inbox after purge = %v, want only the still-pending message %s", ids(inbox), pendingID)
+	}
+
+	// Purging again finds nothing new.
+	if n, err = s.PurgeMessages(ctx, retention); err != nil || n != 0 {
+		t.Fatalf("second PurgeMessages = %d, %v; want 0, nil", n, err)
+	}
+}
+
 // -------------------------------------------------------------- ordering ---
 
 // No sleep between sends, so most share a millisecond and exercise monotonic ULID ordering.

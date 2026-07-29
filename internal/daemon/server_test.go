@@ -70,11 +70,24 @@ func shortTempDir(t *testing.T) string {
 
 func newTestServer(t *testing.T, tweak func(*Config)) *testServer {
 	t.Helper()
+	return newTestServerWithClock(t, tweak, nil)
+}
+
+// newTestServerWithClock is newTestServer, additionally setting the store's
+// clock before Serve starts. sweepLoop now sweeps once at startup, so a test
+// that fast-forwards time by assigning store.Now after construction would
+// race with that first sweep; setting it here, before the background
+// goroutine exists, avoids the race entirely.
+func newTestServerWithClock(t *testing.T, tweak func(*Config), now func() time.Time) *testServer {
+	t.Helper()
 
 	dir := shortTempDir(t)
 	st, err := store.Open(context.Background(), filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
+	}
+	if now != nil {
+		st.Now = now
 	}
 
 	cfg := DefaultConfig()
@@ -238,6 +251,23 @@ func (c *client) inboxPeek(name string) []protocol.MessageView {
 }
 
 // -- registration -----------------------------------------------------------
+
+// TestStats proves doctor's database health line reaches the wire: the
+// method dispatches, and reflects real registrations/messages.
+func TestStats(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	c.register("alice", "proj", "sess-1")
+	c.register("bob", "proj", "sess-2")
+	c.send("hi")
+
+	var st protocol.StatsResult
+	c.mustCall(protocol.MethodStats, nil, &st)
+	if st.Agents != 2 || st.Messages != 1 {
+		t.Fatalf("stats = %+v, want 2 agents, 1 message", st)
+	}
+}
 
 func TestRegister(t *testing.T) {
 	ts := newTestServer(t, nil)
@@ -547,8 +577,7 @@ func TestActivityKeepsAgentAliveAndNameUnstealable(t *testing.T) {
 	const staleAfter = 50 * time.Millisecond
 	clk := newFakeClock()
 
-	ts := newTestServer(t, func(c *Config) { c.StaleAfter = staleAfter })
-	ts.store.Now = clk.Now
+	ts := newTestServerWithClock(t, func(c *Config) { c.StaleAfter = staleAfter }, clk.Now)
 
 	c := ts.dial()
 	c.register("alice", "proj", "sess-1")
