@@ -3,6 +3,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -15,12 +19,42 @@ import (
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
+const usage = `usage: tetherd
+
+tetherd takes no flags or arguments. Configure it with TETHER_SOCK and
+TETHER_DB; see the README for the full list of environment variables.`
+
+// parseArgs rejects anything on the command line: tetherd takes no flags or
+// arguments. Without this, an unrecognized flag like a stray "-h" was
+// silently ignored and the daemon started anyway, bound to the default
+// socket -- there was no way to tell a typo from a real invocation.
+func parseArgs(args []string) error {
+	fs := flag.NewFlagSet("tetherd", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // usage is printed by the caller, once, on our terms
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unrecognized argument %q", fs.Arg(0))
+	}
+	return nil
+}
+
 // version is overridden at build time the same way as cmd/tether's, via
 // -ldflags "-X main.version=...". Logged at startup since tetherd has no
 // subcommands to print it on request.
 var version = "dev"
 
 func main() {
+	if err := parseArgs(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Println(usage)
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "tetherd: %v\n%s\n", err, usage)
+		os.Exit(2)
+	}
+
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("tetherd: ")
 
