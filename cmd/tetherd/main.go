@@ -15,6 +15,11 @@ import (
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
+// version is overridden at build time the same way as cmd/tether's, via
+// -ldflags "-X main.version=...". Logged at startup since tetherd has no
+// subcommands to print it on request.
+var version = "dev"
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("tetherd: ")
@@ -71,6 +76,7 @@ func run() error {
 		return err
 	}
 
+	log.Printf("tetherd %s", version)
 	log.Printf("listening on %s", sockPath)
 	log.Printf("database %s", dbPath)
 
