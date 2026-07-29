@@ -123,6 +123,13 @@ WHERE to_ws = ? AND to_name = ? AND acked_at IS NULL AND dead = 0`
 UPDATE messages SET dead = 1
 WHERE dead = 0 AND acked_at IS NULL AND created_at < ?`
 
+	// qPurgeMessages deletes read (acked) or dead mail past the retention
+	// window -- this is what keeps the database from growing forever; unlike
+	// qSweepDead, it removes rows instead of only flagging them.
+	qPurgeMessages = `
+DELETE FROM messages
+WHERE (dead = 1 OR acked_at IS NOT NULL) AND created_at < ?`
+
 	// Subquery, not ORDER BY/LIMIT on UPDATE: modernc.org/sqlite rejects that directly.
 	qDropOldest = `
 UPDATE messages SET dead = 1

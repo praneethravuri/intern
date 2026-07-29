@@ -32,6 +32,7 @@ const (
 	MethodWait     = "wait"
 	MethodLs       = "ls"
 	MethodExplain  = "explain"
+	MethodStats    = "stats"
 )
 
 // Request represents an incoming command from an agent. Params stays raw so

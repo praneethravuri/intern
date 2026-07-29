@@ -81,6 +81,7 @@ func TestJSONTags_AreSnakeCase(t *testing.T) {
 		WaitParams{}, WaitResult{},
 		WhoParams{}, WhoResult{}, AgentView{},
 		StatusParams{}, StatusResult{},
+		StatsResult{},
 		Request{}, Response{}, Error{},
 	}
 
@@ -216,8 +217,9 @@ func TestMethodConstants(t *testing.T) {
 		MethodWait:     "wait",
 		MethodLs:       "ls",
 		MethodExplain:  "explain",
+		MethodStats:    "stats",
 	}
-	if len(want) != 6 {
+	if len(want) != 7 {
 		t.Fatalf("method constants collide: got %d distinct values, want 6", len(want))
 	}
 	for got, expected := range want {

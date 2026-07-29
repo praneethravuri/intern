@@ -140,3 +140,11 @@ type StatusParams struct {
 type StatusResult struct {
 	Agent AgentView `json:"agent"`
 }
+
+// StatsResult is the result for MethodStats: row counts for doctor's
+// database health line. No params -- counts are global, not per-workspace.
+type StatsResult struct {
+	Messages     int `json:"messages"`
+	Agents       int `json:"agents"`
+	Observations int `json:"observations"`
+}
