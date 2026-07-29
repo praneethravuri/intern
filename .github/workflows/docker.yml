@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    # Validates the Dockerfile builds on every push/PR. Never pushes an image.
+    # Validates the Dockerfile builds; never pushes.
     name: build image
     runs-on: ubuntu-latest
     permissions:
@@ -25,8 +25,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # buildx is required, not optional: the Dockerfile uses the
-      # `# syntax=docker/dockerfile:1.7` directive and RUN --mount=type=cache.
+      # Required: the Dockerfile uses RUN --mount=type=cache.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -40,14 +39,11 @@ jobs:
           build-args: |
             VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
 
-      # The entrypoint is tetherd, so check the CLI binary made it into the
-      # image and reports the version it was stamped with.
       - name: Smoke test the image
         run: docker run --rm --entrypoint /usr/local/bin/tether tether:ci version
 
   publish:
-    # Only actually runs on a version tag push (the workflow itself triggers on every
-    # push per the branches/tags filters above; this condition gates the job).
+    # Gated to version-tag pushes only; the workflow itself triggers on every push.
     name: publish to GHCR
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
@@ -89,7 +85,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          # Stamps main.version in both binaries with the git tag.
+          # Stamps the git tag into main.version.
           build-args: |
             VERSION=${{ github.ref_name }}
           tags: ${{ steps.meta.outputs.tags }}

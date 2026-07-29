@@ -16,10 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Generic file hygiene: trailing whitespace, final newlines, YAML validity,
-  # large files. The two Go hooks are skipped because dedicated jobs below run
-  # gofmt and golangci-lint with better caching and PR annotations; the hooks
-  # still exist so the same checks gate local commits.
+  # Go hooks skipped: dedicated jobs below run gofmt/golangci-lint with better caching.
   pre-commit:
     name: pre-commit hooks
     runs-on: ubuntu-latest
@@ -55,18 +52,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # go-version-file keeps the toolchain in one place: bump go.mod and CI
-      # follows. cache: true caches the module cache and the build cache,
-      # keyed on go.sum.
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
-      # The e2e suite drives a unix-socket daemon, so it is POSIX-only. Rather
-      # than fail the Windows leg, drop that package from the list there; every
-      # other package is expected to build and test on all three platforms.
+      # e2e is POSIX-only, dropped on Windows. It also has no non-test Go
+      # files, so `go build <pkg>` fails on it unlike wildcard `go build ./...`
+      # -- buildlist drops it everywhere, on top of the platform filter.
       - name: Select packages
         id: pkgs
         shell: bash
@@ -76,18 +70,20 @@ jobs:
           else
             list=$(go list ./... | tr '\n' ' ')
           fi
+          buildlist=$(echo "$list" | tr ' ' '\n' | grep -v '/e2e$' | tr '\n' ' ')
           echo "list=${list}" >> "$GITHUB_OUTPUT"
+          echo "buildlist=${buildlist}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         shell: bash
-        run: go build ${{ steps.pkgs.outputs.list }}
+        run: go build ${{ steps.pkgs.outputs.buildlist }}
 
       - name: Vet
         shell: bash
         run: go vet ${{ steps.pkgs.outputs.list }}
 
-      # Linux only: a Windows checkout may normalise line endings, which makes
-      # gofmt report every file. One authoritative formatting check is enough.
+      # Linux only: a Windows checkout normalises line endings, which would make
+      # gofmt report every file.
       - name: Check formatting
         if: runner.os == 'Linux'
         shell: bash
@@ -120,8 +116,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # The action reads .golangci.yml from the repo root; do not duplicate the
-      # linter list here.
+      # Reads .golangci.yml from the repo root; don't duplicate the linter list here.
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -155,8 +150,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Proves the release story: pure-Go SQLite means both binaries build for
-      # every target from one host with no C toolchain in sight.
+      # Proves pure-Go SQLite builds both binaries for every target with no C toolchain.
       - name: Build both binaries
         env:
           CGO_ENABLED: "0"

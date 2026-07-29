@@ -1,12 +1,9 @@
-# tether — build, test and release targets.
-#
-# Everything here is CGO_ENABLED=0: the SQLite driver is pure Go, so both
-# binaries are static and cross-compile without a C toolchain.
+# tether — build, test and release targets. CGO_ENABLED=0 throughout: the pure-Go
+# SQLite driver makes both binaries static and cross-compilable with no C toolchain.
 
 SHELL := /bin/sh
 
-# VERSION is stamped into main.version of both binaries. Override on the
-# command line for a release build: make build VERSION=v1.2.3
+# Override for a release build: make build VERSION=v1.2.3
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 GO       ?= go
@@ -83,8 +80,7 @@ cross: ## Cross-compile both binaries for every supported platform into dist/
 clean: ## Remove build artifacts
 	rm -f $(BINS) $(COVERFILE)
 	rm -rf $(DIST)
-	# Stray files left behind by an interrupted `go build`/gofmt or a crashed
-	# editor (see .gitignore); sweep them up so they don't reaccumulate.
+	# Stray files from an interrupted build/gofmt or a crashed editor (see .gitignore).
 	find . -name '*-go-tmp-umask' -delete
 	find . -name '*.go.[0-9]*' -delete
 	find . -name '.fuse_hidden*' -delete

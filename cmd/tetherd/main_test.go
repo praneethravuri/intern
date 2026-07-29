@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -84,14 +85,16 @@ func TestEndToEndOverRealSocket(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 
-	// The socket must not be world accessible: the message bus carries whatever
-	// the agents say to each other.
-	info, err := os.Stat(sock)
-	if err != nil {
-		t.Fatalf("stat socket: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
-		t.Fatalf("socket mode = %o, want no group/other access", perm)
+	// POSIX permission bits aren't enforced on Windows (see socket_windows.go);
+	// the directory ACL is the control there instead.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(sock)
+		if err != nil {
+			t.Fatalf("stat socket: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm&0o077 != 0 {
+			t.Fatalf("socket mode = %o, want no group/other access", perm)
+		}
 	}
 
 	cfg := DefaultConfig()
