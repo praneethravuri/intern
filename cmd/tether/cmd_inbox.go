@@ -71,7 +71,8 @@ func runInbox(cmd *cobra.Command, opts *inboxOptions) error {
 		return failf(exitGeneral, "--peek and --replay cannot be used together")
 	}
 
-	if err := ensureRegistered(name, workspace); err != nil {
+	name, err = ensureRegistered(name, workspace)
+	if err != nil {
 		return err
 	}
 	_, session := currentSession()

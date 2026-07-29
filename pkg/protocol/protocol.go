@@ -30,8 +30,8 @@ const (
 	MethodSend     = "send"
 	MethodInbox    = "inbox"
 	MethodWait     = "wait"
-	MethodWho      = "who"
-	MethodStatus   = "status"
+	MethodLs       = "ls"
+	MethodExplain  = "explain"
 )
 
 // Request represents an incoming command from an agent. Params stays raw so

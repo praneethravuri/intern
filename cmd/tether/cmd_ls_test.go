@@ -45,7 +45,7 @@ func TestLsHappyPath(t *testing.T) {
 
 	r := mustRun(t, newLsCmd(), "")
 
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodWho))
+	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
 	if params.Workspace != "storefront" || params.All {
 		t.Fatalf("params = %+v, want workspace storefront and all=false", params)
 	}
@@ -136,7 +136,7 @@ func TestLsAll(t *testing.T) {
 
 	mustRun(t, newLsCmd(), "", "--all")
 
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodWho))
+	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
 	if !params.All {
 		t.Fatal("all = false, want true")
 	}
@@ -186,7 +186,7 @@ func TestLsUsesTheWorkspaceFlag(t *testing.T) {
 
 	mustRun(t, newLsCmd(), "", "--workspace", "warehouse")
 
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodWho))
+	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
 	if params.Workspace != "warehouse" {
 		t.Fatalf("workspace = %q, want warehouse", params.Workspace)
 	}
@@ -209,7 +209,7 @@ func TestLsWithoutADaemonExitsThree(t *testing.T) {
 	if got := r.exitCode(); got != exitNoDaemon {
 		t.Fatalf("exit code = %d, want %d", got, exitNoDaemon)
 	}
-	requireContains(t, r.err.Error(), "no tetherd running", "error")
+	requireContains(t, r.err.Error(), "no daemon running", "error")
 }
 
 func TestLsSurvivesAMalformedResponse(t *testing.T) {
@@ -253,11 +253,12 @@ func TestLsRendersDroppedInPendingColumn(t *testing.T) {
 	requireNotContains(t, r.stdout, "(+0 dropped)", "stdout")
 }
 
-// TestWhoIsAnAliasForLs proves the old command name still works.
-func TestWhoIsAnAliasForLs(t *testing.T) {
-	setIdentity(t, "frontend", "storefront")
-	newFakeDaemon(t, okHandler(agents()))
-
-	r := mustRun(t, newRootCmd(), "", "who")
-	requireContains(t, r.stdout, "frontend@storefront", "stdout")
+// TestWhoIsGone proves the old command name is not silently accepted as an
+// alias any more -- tether ls is the only spelling now.
+func TestWhoIsGone(t *testing.T) {
+	r := run(t, newRootCmd(), "", "who")
+	if r.err == nil {
+		t.Fatal("who was accepted; it should be an unknown command")
+	}
+	requireContains(t, r.err.Error(), "unknown command", "error")
 }

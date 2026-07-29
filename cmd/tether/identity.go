@@ -2,17 +2,13 @@ package main
 
 import (
 	"fmt"
-	"hash/fnv"
 	"os"
 	"strings"
 
+	"github.com/praneethravuri/tether/internal/daemon"
 	"github.com/praneethravuri/tether/internal/proc"
 	"github.com/praneethravuri/tether/internal/wsname"
 )
-
-// envName is the environment variable a harness sets once so every later
-// tether invocation in that session knows who it is without --as.
-const envName = "TETHER_NAME"
 
 // Harness identifiers reported at registration time. They are stable strings:
 // the daemon maps them to a notifier and a wake tier.
@@ -50,7 +46,9 @@ func resolveWorkspace(workspaceFlag string) (string, error) {
 }
 
 // resolveSelf works out which agent is running this command: name from the
-// flag, else $TETHER_NAME, else derived from harness+session.
+// flag if given, else empty. An empty name is resolved by the daemon itself
+// -- against whatever this session already registered, or a minted name --
+// when ensureRegistered sends it; see client.go.
 func resolveSelf(nameFlag, workspaceFlag string) (name, workspace string, err error) {
 	workspace, err = resolveWorkspace(workspaceFlag)
 	if err != nil {
@@ -58,14 +56,10 @@ func resolveSelf(nameFlag, workspaceFlag string) (name, workspace string, err er
 	}
 
 	name = strings.TrimSpace(nameFlag)
-	if name == "" {
-		name = strings.TrimSpace(os.Getenv(envName))
-	}
-	if name == "" {
-		name = derivedName()
-	}
-	if err := validateName(name); err != nil {
-		return "", "", err
+	if name != "" {
+		if err := validateName(name); err != nil {
+			return "", "", err
+		}
 	}
 
 	return name, workspace, nil
@@ -82,17 +76,9 @@ func currentSession() (harness, session string) {
 	return harness, session
 }
 
-// derivedName synthesises "<harness>-<hex4>" from a hash of the session id,
-// stable per shell, when the caller supplied no --as or $TETHER_NAME.
-func derivedName() string {
-	harness, session := currentSession()
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(session))
-	return fmt.Sprintf("%s-%04x", harness, h.Sum32()&0xffff)
-}
-
-// validateName rejects names that would be unroutable or could smuggle a
-// terminal escape into another agent's screen via who/status/inbox output.
+// validateName rejects names that would be unroutable, too long for the ls
+// table and name@workspace addresses, or could smuggle a terminal escape
+// into another agent's screen via ls/explain/inbox output.
 func validateName(name string) error {
 	switch {
 	case name == "":
@@ -105,6 +91,8 @@ func validateName(name string) error {
 		return failf(exitGeneral, "the agent name %q contains whitespace", name)
 	case hasControlByte(name):
 		return failf(exitGeneral, "the agent name %q contains a control character", name)
+	case len(name) > daemon.MaxNameLength:
+		return failf(exitGeneral, "the agent name %q is longer than %d characters", name, daemon.MaxNameLength)
 	default:
 		return nil
 	}

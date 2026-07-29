@@ -214,8 +214,8 @@ func TestMethodConstants(t *testing.T) {
 		MethodSend:     "send",
 		MethodInbox:    "inbox",
 		MethodWait:     "wait",
-		MethodWho:      "who",
-		MethodStatus:   "status",
+		MethodLs:       "ls",
+		MethodExplain:  "explain",
 	}
 	if len(want) != 6 {
 		t.Fatalf("method constants collide: got %d distinct values, want 6", len(want))

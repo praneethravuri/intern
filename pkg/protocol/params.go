@@ -14,9 +14,17 @@ type RegisterParams struct {
 // RegisterResult is the result for MethodRegister.
 type RegisterResult struct {
 	Address string `json:"address"`
+	// Name is the resolved name: what was asked for, what the session
+	// already held (an empty-Name register resolves to this), or a minted
+	// name (a register with no session history and no chosen name).
+	Name    string `json:"name"`
 	Harness string `json:"harness"`
-	// Created is false when this call refreshed or reclaimed an existing agent.
+	// Created is false when this call refreshed, renamed, or reclaimed an
+	// existing agent.
 	Created bool `json:"created"`
+	// Renamed is true when this call changed the session's existing name
+	// to Name, moving its pending mail along with it.
+	Renamed bool `json:"renamed,omitempty"`
 }
 
 // SendParams is the payload for MethodSend.
@@ -92,7 +100,7 @@ type WaitResult struct {
 	Capped   bool `json:"capped,omitempty"`
 }
 
-// WhoParams is the payload for MethodWho.
+// WhoParams is the payload for MethodLs.
 type WhoParams struct {
 	Workspace string `json:"workspace"`
 	All       bool   `json:"all"`
@@ -117,18 +125,18 @@ type AgentView struct {
 	LastSeen     string `json:"last_seen"`
 }
 
-// WhoResult is the result for MethodWho.
+// WhoResult is the result for MethodLs.
 type WhoResult struct {
 	Agents []AgentView `json:"agents"`
 }
 
-// StatusParams is the payload for MethodStatus.
+// StatusParams is the payload for MethodExplain.
 type StatusParams struct {
 	Name      string `json:"name"`
 	Workspace string `json:"workspace"`
 }
 
-// StatusResult is the result for MethodStatus.
+// StatusResult is the result for MethodExplain.
 type StatusResult struct {
 	Agent AgentView `json:"agent"`
 }

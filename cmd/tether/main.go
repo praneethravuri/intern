@@ -24,7 +24,7 @@ const (
 	exitOK = 0
 	// exitGeneral is any failure without a more specific code.
 	exitGeneral = 1
-	// exitNoDaemon means tetherd could not be reached.
+	// exitNoDaemon means the daemon could not be reached.
 	exitNoDaemon = 3
 	// exitTimeout means `tether wait` returned with no mail.
 	exitTimeout = 4
@@ -133,7 +133,7 @@ resolved against the current workspace.
 Typical session:
 
   tether register --as frontend     # claim a name in this workspace
-  tether ls                         # see who else is here (bare "tether" does this too)
+  tether ls                         # see who else is here
   tether send --to backend "..."    # send a message
   tether wait --timeout 60s         # block until mail arrives
   tether inbox                      # read it -- this also clears it
@@ -142,18 +142,18 @@ Typical session:
 Message bodies should be passed with --body-file (use "-" for stdin) whenever
 they contain quotes, backticks, newlines or $ so the shell cannot mangle them.
 
+Running tether with no arguments starts the daemon in the foreground.
+
 Exit codes:
   0  success
   1  general error
-  3  no tetherd running
+  3  no daemon running
   4  wait timed out
   5  conflict (for example, the name is already taken)`
 
-// newRootCmd's bare form runs `tether ls`; NoArgs makes a typo'd subcommand
-// fail loudly instead of silently running ls.
+// newRootCmd's bare form runs the daemon in the foreground; NoArgs makes a
+// typo'd subcommand fail loudly instead of silently starting one.
 func newRootCmd() *cobra.Command {
-	var opts lsOptions
-
 	root := &cobra.Command{
 		Use:           "tether",
 		Short:         "Local message bus for coding agents",
@@ -162,13 +162,9 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runLs(cmd, &opts)
+			return runDaemon(cmd)
 		},
 	}
-
-	opts.addWorkspace(root)
-	opts.addJSON(root)
-	root.Flags().BoolVar(&opts.all, "all", false, "list agents in every workspace, not just this one")
 
 	root.AddCommand(
 		newVersionCmd(),

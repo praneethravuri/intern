@@ -33,7 +33,7 @@ func TestExplainOfSelf(t *testing.T) {
 
 	mustRun(t, newExplainCmd(), "")
 
-	params := decodeParams[protocol.StatusParams](t, d.registerThen(t, protocol.MethodStatus))
+	params := decodeParams[protocol.StatusParams](t, d.registerThen(t, protocol.MethodExplain))
 	if params.Name != "frontend" || params.Workspace != "storefront" {
 		t.Fatalf("explain of %s@%s, want frontend@storefront (myself)",
 			params.Name, params.Workspace)
@@ -49,7 +49,7 @@ func TestExplainShowsStateSourceSeenAndDetail(t *testing.T) {
 
 	r := mustRun(t, newExplainCmd(), "", "backend")
 
-	params := decodeParams[protocol.StatusParams](t, d.only(t, protocol.MethodStatus))
+	params := decodeParams[protocol.StatusParams](t, d.only(t, protocol.MethodExplain))
 	if params.Name != "backend" || params.Workspace != "storefront" {
 		t.Fatalf("explain of %s@%s, want backend@storefront", params.Name, params.Workspace)
 	}
@@ -101,7 +101,7 @@ func TestExplainOfAnAgentInAnotherWorkspace(t *testing.T) {
 
 	mustRun(t, newExplainCmd(), "", "backend@warehouse")
 
-	params := decodeParams[protocol.StatusParams](t, d.only(t, protocol.MethodStatus))
+	params := decodeParams[protocol.StatusParams](t, d.only(t, protocol.MethodExplain))
 	if params.Name != "backend" || params.Workspace != "warehouse" {
 		t.Fatalf("explain of %s@%s, want backend@warehouse", params.Name, params.Workspace)
 	}
@@ -135,7 +135,7 @@ func TestExplainOfAnotherAgentDoesNotRegister(t *testing.T) {
 
 	mustRun(t, newExplainCmd(), "", "backend")
 
-	d.only(t, protocol.MethodStatus)
+	d.only(t, protocol.MethodExplain)
 }
 
 func TestExplainOfAnUnknownAgent(t *testing.T) {

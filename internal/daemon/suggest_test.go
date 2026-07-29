@@ -1,6 +1,9 @@
-package main
+package daemon
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSuggest(t *testing.T) {
 	tests := []struct {
@@ -47,6 +50,36 @@ func TestSuggest(t *testing.T) {
 				t.Fatalf("suggest(%q, %v) = %q, want %q", tc.target, tc.candidates, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestMintNameIsStableForTheSameSession is the core guarantee behind
+// resolving an empty-Name register: the same session id must always mint
+// the same name, or two invocations from the same shell would mint two
+// different names and never see each other's registration as idempotent.
+func TestMintNameIsStableForTheSameSession(t *testing.T) {
+	a := mintName("claude-code", "session-a")
+	b := mintName("claude-code", "session-a")
+	if a != b {
+		t.Fatalf("mintName() is not stable across calls: %q != %q", a, b)
+	}
+}
+
+// TestMintNameDiffersForADifferentSession is the flip side: a different
+// session id must mint a different name, or two unrelated shells would
+// collide on the same identity.
+func TestMintNameDiffersForADifferentSession(t *testing.T) {
+	a := mintName("claude-code", "session-a")
+	b := mintName("claude-code", "session-b")
+	if a == b {
+		t.Fatalf("mintName() collided for two different sessions: both = %q", a)
+	}
+}
+
+func TestMintNameHasTheHarnessPrefixedShape(t *testing.T) {
+	got := mintName("claude-code", "session-a")
+	if !strings.HasPrefix(got, "claude-code-") {
+		t.Fatalf("mintName() = %q, want a claude-code-<hex4> shape", got)
 	}
 }
 

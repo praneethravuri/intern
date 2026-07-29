@@ -1,8 +1,6 @@
-//go:build !windows
-
-// Package e2e drives the compiled tether and tetherd binaries as real
-// subprocesses over a real unix socket. Unix-only; skipped by -short since it
-// forks processes and compiles two binaries.
+// Package e2e drives the compiled tether binary as a real subprocess over a
+// real unix socket, in both its CLI and daemon roles. Skipped by -short since
+// it forks processes and compiles a binary.
 package e2e
 
 import (
@@ -32,12 +30,9 @@ const (
 	exitConflict = 5
 )
 
-// tetherBin and tetherdBin are the paths to the freshly compiled binaries,
-// set up once by TestMain before any test runs.
-var (
-	tetherBin  string
-	tetherdBin string
-)
+// tetherBin is the path to the freshly compiled binary, set up once by
+// TestMain before any test runs.
+var tetherBin string
 
 func TestMain(m *testing.M) {
 	// A custom TestMain runs before testing flags (including -short) are
@@ -59,13 +54,8 @@ func runTestMain(m *testing.M) int {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	tetherBin = filepath.Join(dir, "tether")
-	tetherdBin = filepath.Join(dir, "tetherd")
 
 	if err := buildBinary(tetherBin, "../cmd/tether"); err != nil {
-		fmt.Fprintln(os.Stderr, "e2e:", err)
-		return 1
-	}
-	if err := buildBinary(tetherdBin, "../cmd/tetherd"); err != nil {
 		fmt.Fprintln(os.Stderr, "e2e:", err)
 		return 1
 	}
@@ -118,10 +108,10 @@ func waitDialable(t *testing.T, path string, timeout time.Duration) {
 	t.Fatalf("socket %s never became dialable within %s: %v", path, timeout, lastErr)
 }
 
-// daemonEnv is the environment tetherd runs under: nothing inherited from the
-// test process except PATH, so registration/harness detection in these tests
-// never depends on what happens to be set in the environment running `go
-// test`.
+// daemonEnv is the environment the daemon runs under: nothing inherited from
+// the test process except PATH, so registration/harness detection in these
+// tests never depends on what happens to be set in the environment running
+// `go test`.
 func daemonEnv(sock, db string) []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
@@ -140,7 +130,20 @@ func cliEnv(sock string) []string {
 	}
 }
 
-// testDaemon wraps a running tetherd subprocess.
+// cliEnvForArgs is cliEnv with a per-agent TETHER_SESSION_ID derived from any
+// --as value in args, so each simulated agent in this suite is a genuinely
+// distinct session. See runTether's doc comment for why this matters.
+func cliEnvForArgs(sock string, args []string) []string {
+	env := cliEnv(sock)
+	for i, a := range args {
+		if a == "--as" && i+1 < len(args) && args[i+1] != "" {
+			return append(env, "TETHER_SESSION_ID=sess-"+args[i+1])
+		}
+	}
+	return env
+}
+
+// testDaemon wraps tetherBin running with no arguments -- its daemon role.
 type testDaemon struct {
 	cmd     *exec.Cmd
 	sock    string
@@ -149,22 +152,22 @@ type testDaemon struct {
 	stopped bool
 }
 
-// startDaemon starts tetherd against sock/db and blocks until its socket is
-// dialable. It does not register its own cleanup: TestEndToEnd owns exactly
-// one cleanup that stops whichever daemon is current, which is what makes the
-// restart-durability scenario (stop, start a second one on the same paths)
-// safe to express without double-registering cleanups.
+// startDaemon starts the daemon against sock/db and blocks until its socket
+// is dialable. It does not register its own cleanup: TestEndToEnd owns
+// exactly one cleanup that stops whichever daemon is current, which is what
+// makes the restart-durability scenario (stop, start a second one on the same
+// paths) safe to express without double-registering cleanups.
 func startDaemon(t *testing.T, sock, db string) *testDaemon {
 	t.Helper()
 
-	cmd := exec.Command(tetherdBin)
+	cmd := exec.Command(tetherBin)
 	cmd.Env = daemonEnv(sock, db)
 	logBuf := &bytes.Buffer{}
 	cmd.Stdout = logBuf
 	cmd.Stderr = logBuf
 
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start tetherd: %v", err)
+		t.Fatalf("start daemon: %v", err)
 	}
 
 	d := &testDaemon{cmd: cmd, sock: sock, db: db, log: logBuf}
@@ -173,8 +176,8 @@ func startDaemon(t *testing.T, sock, db string) *testDaemon {
 }
 
 // stop sends SIGTERM and waits for a clean exit, falling back to SIGKILL if
-// tetherd does not honour it promptly. It is idempotent so it is safe to call
-// both explicitly (restart scenario) and from the top-level cleanup.
+// the daemon does not honour it promptly. It is idempotent so it is safe to
+// call both explicitly (restart scenario) and from the top-level cleanup.
 func (d *testDaemon) stop(t *testing.T) {
 	t.Helper()
 	if d.stopped {
@@ -187,7 +190,7 @@ func (d *testDaemon) stop(t *testing.T) {
 	}
 
 	if err := d.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Logf("signal tetherd: %v", err)
+		t.Logf("signal daemon: %v", err)
 	}
 
 	done := make(chan struct{})
@@ -199,9 +202,30 @@ func (d *testDaemon) stop(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Logf("tetherd did not exit within 5s of SIGTERM; killing\nlog:\n%s", d.log.String())
+		t.Logf("daemon did not exit within 5s of SIGTERM; killing\nlog:\n%s", d.log.String())
 		_ = d.cmd.Process.Kill()
 		<-done
+	}
+}
+
+// stopAutoStarted best-effort SIGTERMs the daemon that auto-start spawned for
+// sock, using the pid recorded in its lock file -- tether has no shutdown
+// RPC, and the daemon is otherwise untracked by this test process (it was
+// spawned detached, by the tether subprocess that needed it, not by us).
+func stopAutoStarted(t *testing.T, sock string) {
+	t.Helper()
+	raw, err := os.ReadFile(sock + ".lock")
+	if err != nil {
+		t.Logf("stopAutoStarted: read lock file: %v", err)
+		return
+	}
+	var pid int
+	if _, err := fmt.Sscanf(string(raw), "%d", &pid); err != nil {
+		t.Logf("stopAutoStarted: parse pid from %q: %v", raw, err)
+		return
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		t.Logf("stopAutoStarted: kill %d: %v", pid, err)
 	}
 }
 
@@ -219,9 +243,19 @@ type cliResult struct {
 // `send --body-file -`). A generous bound stops a hung subprocess from
 // hanging the whole test run; every real command here finishes in
 // milliseconds to low seconds.
+//
+// Every invocation in this file shares one parent process (this test
+// binary), so without help every call would derive the same synthetic
+// session id. That was harmless before the daemon could rename a session's
+// existing registration, but registering a second --as name from what looks
+// like the same session is now a rename, not an independent agent -- so the
+// environment gets a TETHER_SESSION_ID derived from any --as value in args,
+// giving each simulated agent its own session. Scenarios that need a
+// specific session relationship (a real conflict, a dead-session reclaim)
+// still build their own env explicitly via runTetherEnv.
 func runTether(t *testing.T, sock, stdin string, args ...string) cliResult {
 	t.Helper()
-	return runTetherEnv(t, cliEnv(sock), stdin, args...)
+	return runTetherEnv(t, cliEnvForArgs(sock, args), stdin, args...)
 }
 
 // runTetherEnv is runTether with an explicit environment, for scenarios that
@@ -260,7 +294,7 @@ func runTetherEnv(t *testing.T, env []string, stdin string, args ...string) cliR
 func startBackground(t *testing.T, sock string, args ...string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 	cmd := exec.Command(tetherBin, args...)
-	cmd.Env = cliEnv(sock)
+	cmd.Env = cliEnvForArgs(sock, args)
 	cmd.Stdin = strings.NewReader("")
 	out := &bytes.Buffer{}
 	cmd.Stdout = out
@@ -326,16 +360,16 @@ type doctorJSON struct {
 
 // -- the end-to-end test ------------------------------------------------------
 
-// TestEndToEnd drives the compiled tether and tetherd binaries through a full
-// session: registration, messaging, the ack/replay contract, the wake path,
-// conflicts, failure modes, doctor, and a daemon restart. See the package doc
-// for why this exists alongside the unit tests.
+// TestEndToEnd drives the compiled tether binary, in both its CLI and daemon
+// roles, through a full session: registration, messaging, the ack/replay
+// contract, the wake path, conflicts, failure modes, doctor, and a daemon
+// restart. See the package doc for why this exists alongside the unit tests.
 func TestEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
-	if tetherBin == "" || tetherdBin == "" {
-		t.Fatal("binaries were not built by TestMain")
+	if tetherBin == "" {
+		t.Fatal("binary was not built by TestMain")
 	}
 
 	const ws = "acme"
@@ -365,10 +399,10 @@ func TestEndToEnd(t *testing.T) {
 		requireContains(t, r.stdout, "registered backend@"+ws, "register backend stdout")
 	})
 
-	// 2. who lists both.
-	t.Run("who lists both", func(t *testing.T) {
-		r := runTether(t, sock, "", "who", "--workspace", ws, "--json")
-		requireExit(t, r, 0, "who")
+	// 2. ls lists both.
+	t.Run("ls lists both", func(t *testing.T) {
+		r := runTether(t, sock, "", "ls", "--workspace", ws, "--json")
+		requireExit(t, r, 0, "ls")
 
 		var res protocol.WhoResult
 		unmarshalJSON(t, r.stdout, &res)
@@ -508,7 +542,7 @@ func TestEndToEnd(t *testing.T) {
 		go func() { done <- waitCmd.Wait() }()
 
 		r = runTether(t, sock, "", "send", "--as", "backend", "--workspace", ws,
-			"--to", "sleepy", "wake up")
+			"sleepy", "wake up")
 		requireExit(t, r, 0, "send to sleepy")
 
 		select {
@@ -630,14 +664,14 @@ func TestEndToEnd(t *testing.T) {
 	t.Run("send --as an unowned name from an intruder session exits 5", func(t *testing.T) {
 		env := append(append([]string{}, cliEnv(sock)...), "TETHER_SESSION_ID=send-intruder-session")
 		r := runTetherEnv(t, env, "", "send", "--as", "frontend", "--workspace", ws,
-			"--to", "backend", "forged message")
+			"backend", "forged message")
 		requireExit(t, r, exitConflict, "send as an unowned name")
 	})
 
-	// 7e. unregister and heartbeat are not merely absent from the CLI
-	// surface (no such subcommands ever existed): the wire methods
-	// themselves now 400 like any other unknown method.
-	t.Run("unregister and heartbeat are gone from the wire", func(t *testing.T) {
+	// 7e. unregister and heartbeat never existed as CLI subcommands, and
+	// who/status were renamed to ls/explain -- either way, the retired wire
+	// spellings now 400 like any other unknown method.
+	t.Run("unregister, heartbeat, who and status are gone from the wire", func(t *testing.T) {
 		conn, err := net.Dial("unix", sock)
 		if err != nil {
 			t.Fatalf("dial: %v", err)
@@ -646,7 +680,7 @@ func TestEndToEnd(t *testing.T) {
 		enc := json.NewEncoder(conn)
 		dec := json.NewDecoder(conn)
 
-		for _, method := range []string{"unregister", "heartbeat"} {
+		for _, method := range []string{"unregister", "heartbeat", "who", "status"} {
 			if err := enc.Encode(protocol.Request{ID: method, Method: method}); err != nil {
 				t.Fatalf("encode %s: %v", method, err)
 			}
@@ -669,7 +703,7 @@ func TestEndToEnd(t *testing.T) {
 			"final line, no trailing newline"
 
 		r := runTether(t, sock, body, "send", "--as", "backend", "--workspace", ws,
-			"--to", "frontend", "--body-file", "-")
+			"frontend", "--body-file", "-")
 		requireExit(t, r, 0, "send with --body-file -")
 
 		r = runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--json")
@@ -687,15 +721,47 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// 9. No daemon (TETHER_SOCK pointing at a nonexistent path) exits 3.
-	t.Run("no daemon exits 3 with a helpful message", func(t *testing.T) {
-		deadSock := filepath.Join(dir, "no-such-socket")
-		r := runTether(t, deadSock, "", "who", "--workspace", ws)
-		requireExit(t, r, exitNoDaemon, "who with no daemon")
-		requireContains(t, r.stderr, "no tetherd running", "no-daemon stderr")
+	// 9. No daemon (TETHER_SOCK pointing at a nonexistent path) auto-starts
+	// one instead of failing -- the Phase 3 headline behavior. Isolated
+	// socket/db/home so the daemon it spawns can't leak into other
+	// scenarios, and cleaned up via the pid its own lock file records
+	// (tether has no shutdown RPC).
+	t.Run("no daemon auto-starts one", func(t *testing.T) {
+		autoDir := shortTempDir(t)
+		autoHome := filepath.Join(autoDir, "home")
+		if err := os.MkdirAll(autoHome, 0o700); err != nil {
+			t.Fatalf("mkdir home: %v", err)
+		}
+		autoSock := filepath.Join(autoDir, "sock")
+		env := []string{
+			"PATH=" + os.Getenv("PATH"),
+			"HOME=" + autoHome,
+			"TETHER_SOCK=" + autoSock,
+			"TETHER_DB=" + filepath.Join(autoDir, "tether.db"),
+		}
+
+		r := runTetherEnv(t, env, "", "ls", "--workspace", ws)
+		requireExit(t, r, 0, "ls with no daemon (should auto-start one)")
+		requireContains(t, r.stdout, "0 agents", "auto-started daemon's ls output")
+
+		waitDialable(t, autoSock, 3*time.Second)
+		t.Cleanup(func() { stopAutoStarted(t, autoSock) })
 	})
 
-	// 10. doctor reports the daemon reachable and lists agents.
+	// 10. doctor never auto-starts: it diagnoses rather than fixes, so
+	// against the same kind of dead socket it still exits 3 and creates
+	// nothing.
+	t.Run("doctor never auto-starts", func(t *testing.T) {
+		deadSock := filepath.Join(dir, "no-such-socket-for-doctor")
+		r := runTether(t, deadSock, "", "doctor", "--workspace", ws)
+		requireExit(t, r, exitNoDaemon, "doctor with no daemon")
+		requireContains(t, r.stdout, "no daemon running", "doctor stdout")
+		if _, err := os.Stat(deadSock); err == nil {
+			t.Fatal("doctor must not create a socket by auto-starting a daemon")
+		}
+	})
+
+	// 11. doctor reports the daemon reachable and lists agents.
 	t.Run("doctor reports daemon reachable and lists agents", func(t *testing.T) {
 		r := runTether(t, sock, "", "doctor", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "doctor")
@@ -715,7 +781,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// 11. Restart durability: a message survives a SIGTERM + restart against
+	// 12. Restart durability: a message survives a SIGTERM + restart against
 	// the same TETHER_DB. This is the last scenario to use the daemon.
 	t.Run("message survives a daemon restart", func(t *testing.T) {
 		r := runTether(t, sock, "", "register", "--as", "durable", "--workspace", ws)
@@ -723,7 +789,7 @@ func TestEndToEnd(t *testing.T) {
 
 		const survivorBody = "this message must survive a restart"
 		r = runTether(t, sock, "", "send", "--as", "backend", "--workspace", ws,
-			"--to", "durable", survivorBody)
+			"durable", survivorBody)
 		requireExit(t, r, 0, "send to durable")
 
 		// --peek: this must not consume the message, or "after restart"
@@ -749,7 +815,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// 12. tether version prints something. Does not touch the daemon.
+	// 13. tether version prints something. Does not touch the daemon.
 	t.Run("version prints something", func(t *testing.T) {
 		r := runTether(t, sock, "", "version")
 		requireExit(t, r, 0, "version")
@@ -757,4 +823,52 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal("tether version produced no output")
 		}
 	})
+}
+
+// TestBareTetherRunsTheDaemon is the one-binary headline scenario: no
+// separate daemon binary exists, so `tether` with no arguments must itself
+// become the daemon -- print the banner, accept connections, and shut down
+// cleanly on SIGINT.
+func TestBareTetherRunsTheDaemon(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	dir := shortTempDir(t)
+	sock := filepath.Join(dir, "sock")
+	db := filepath.Join(dir, "tether.db")
+
+	cmd := exec.Command(tetherBin)
+	cmd.Env = daemonEnv(sock, db)
+	out := &bytes.Buffer{}
+	cmd.Stdout = out
+	cmd.Stderr = out
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start bare tether: %v", err)
+	}
+	waitDialable(t, sock, 10*time.Second)
+
+	r := runTether(t, sock, "", "ls", "--json")
+	requireExit(t, r, 0, "ls against the bare-tether daemon")
+
+	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatalf("signal SIGINT: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("bare tether did not exit cleanly on SIGINT: %v\noutput:\n%s", err, out.String())
+		}
+	case <-time.After(5 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("bare tether did not exit within 5s of SIGINT")
+	}
+
+	// out is only safe to read now that the process (and its stdout-copying
+	// goroutine) has exited.
+	requireContains(t, out.String(), "running the daemon in the foreground", "banner")
+	requireContains(t, out.String(), sock, "banner")
 }

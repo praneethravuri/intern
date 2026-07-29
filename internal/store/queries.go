@@ -40,6 +40,30 @@ WHERE agents.last_seen < ?
 
 	qGetAgent = `SELECT ` + agentCols + ` FROM agents WHERE workspace = ? AND name = ?`
 
+	// qFindNameBySession resolves a session to whatever name it already
+	// holds, so an empty-Name register can refresh it instead of minting a
+	// second identity for the same session.
+	qFindNameBySession = `
+SELECT name FROM agents
+WHERE workspace = ? AND session_id = ?
+ORDER BY registered_at DESC LIMIT 1`
+
+	// qRenameAgent changes a session's own row to a new name and refreshes
+	// its other fields, unless a different session already holds that name
+	// (RowsAffected()==0 means the target name is taken).
+	qRenameAgent = `
+UPDATE agents SET
+    name = ?, harness = ?, cwd = ?, pid = ?, pid_start = ?, last_seen = ?
+WHERE workspace = ? AND session_id = ?
+  AND NOT EXISTS (
+    SELECT 1 FROM agents AS other
+    WHERE other.workspace = ? AND other.name = ? AND other.session_id <> ?
+  )`
+
+	// qRenameMessages moves a renamed agent's pending mail along with it, so
+	// no message is left addressed to a name nobody holds any more.
+	qRenameMessages = `UPDATE messages SET to_name = ? WHERE to_ws = ? AND to_name = ?`
+
 	// Empty workspace means all workspaces; cutoff 0 disables the staleness filter.
 	qListAgents = `
 SELECT ` + agentCols + `
