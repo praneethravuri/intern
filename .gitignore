@@ -28,8 +28,10 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+*.swp
+*~
 
 # Project documentation
 codeDocs/
@@ -37,8 +39,31 @@ codeDocs/
 # Log files
 *.log
 
-# Build artifacts (root-level binaries only -- unanchored would also match cmd/tether, cmd/tetherd)
+# Build artifacts (root-level binaries only -- unanchored would also match
+# the cmd/tether and cmd/tetherd source directories)
 /tether
+/tetherd
+
+# Cross-compilation output from `make cross`
+/dist/
+
+# Partial files the Go toolchain and gofmt leave behind when a write is
+# interrupted: `go build` writes <name>-go-tmp-umask, and gofmt -w writes
+# <file>.go.<random-digits> next to the original.
+*-go-tmp-umask
+*.go.[0-9]*
+
+# Files a FUSE mount leaves behind when an open file is deleted
+.fuse_hidden*
+
+# Local tether state: the message store, plus SQLite's WAL sidecars
+*.db
+*.db-wal
+*.db-shm
+.tether/
+
+# macOS
+.DS_Store
 
 # Superpowers
 .superpowers
