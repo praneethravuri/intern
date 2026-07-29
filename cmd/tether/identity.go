@@ -194,8 +194,8 @@ func env(key string) string {
 	return strings.TrimSpace(os.Getenv(key))
 }
 
-// envSessionOverride lets a harness, or a test, supply its own session id
-// directly, bypassing the derivation in syntheticSessionID below entirely.
+// envSessionOverride lets an unrecognised harness, or a test, supply its own
+// session id directly, bypassing the derivation below.
 const envSessionOverride = "TETHER_SESSION_ID"
 
 // syntheticSessionID gives an unrecognised harness (including a plain shell)
@@ -203,7 +203,10 @@ const envSessionOverride = "TETHER_SESSION_ID"
 // matches on re-register and would make a repeat `tether register` fail as
 // a false name conflict. Derived from the parent process's pid+start time,
 // which is stable per shell and distinct across shells even under pid reuse.
-// $TETHER_SESSION_ID always wins when set.
+//
+// $TETHER_SESSION_ID wins only within this fallback: a harness detectHarness
+// already recognises (one that reports its own session id) is not affected,
+// since this function is never called for it.
 func syntheticSessionID() string {
 	if sid := env(envSessionOverride); sid != "" {
 		return sid
