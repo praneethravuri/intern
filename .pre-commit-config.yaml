@@ -14,7 +14,7 @@ repos:
     hooks:
       - id: go-fmt
         name: go fmt
-        entry: gofmt -w
+        entry: gofmt -s -w
         language: system
         types: [go]
         pass_filenames: true
