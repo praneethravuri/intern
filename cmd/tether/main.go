@@ -1,15 +1,15 @@
-// Command tether is the CLI for cross-harness agent messaging.
-//
-// Coding-agent harnesses -- Claude Code, Codex, Gemini CLI, Cline and the rest --
-// each ship their own session registry and mailbox, and none of them cross. tether
-// is one registry and one inbox for all of them, driven from the shell.
+// Command tether is the CLI for cross-harness agent messaging: one registry
+// and inbox that any coding-agent harness can drive from the shell.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 // version is overridden at build time:
@@ -17,21 +17,175 @@ import (
 //	go build -ldflags "-X main.version=$(git describe --tags)" ./cmd/tether
 var version = "dev"
 
-func main() {
-	if err := newRootCmd().Execute(); err != nil {
-		os.Exit(1)
-	}
+// Exit codes. These are part of the CLI's contract: scripts and agents branch
+// on them, so they must never be reused for a different meaning.
+const (
+	// exitOK means the command did what it was asked to do.
+	exitOK = 0
+	// exitGeneral is any failure without a more specific code.
+	exitGeneral = 1
+	// exitNoDaemon means tetherd could not be reached.
+	exitNoDaemon = 3
+	// exitTimeout means `tether wait` returned with no mail.
+	exitTimeout = 4
+	// exitConflict means the request collided with existing state, most often
+	// a name that is already registered in the workspace.
+	exitConflict = 5
+)
+
+// exitError carries the process exit code a failure should produce.
+//
+// cobra's Execute reports a plain error, so commands return an *exitError and
+// main unwraps it with errors.As to choose the code. A nil err means the
+// command has already told the user what happened on stdout and main should
+// exit quietly (this is how `wait` reports a timeout).
+type exitError struct {
+	code int
+	err  error
 }
 
-func newRootCmd() *cobra.Command {
-	root := &cobra.Command{
-		Use:          "tether",
-		Short:        "Let coding-agent harnesses talk to each other",
-		SilenceUsage: true,
-		RunE:         runLs,
+// Error implements error.
+func (e *exitError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	if e.err == nil {
+		return fmt.Sprintf("exit status %d", e.code)
+	}
+	return e.err.Error()
+}
+
+// Unwrap exposes the underlying cause so errors.As keeps working through it.
+func (e *exitError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+// failf builds an *exitError with a formatted message.
+func failf(code int, format string, a ...any) error {
+	return &exitError{code: code, err: fmt.Errorf(format, a...)}
+}
+
+// fail wraps err so it exits with code.
+func fail(code int, err error) error {
+	return &exitError{code: code, err: err}
+}
+
+// silentExit exits with code without printing anything further; the command
+// has already rendered its result.
+func silentExit(code int) error {
+	return &exitError{code: code}
+}
+
+// exitCodeFor maps an error returned by a command to a process exit code.
+func exitCodeFor(err error) int {
+	if err == nil {
+		return exitOK
 	}
 
-	root.AddCommand(&cobra.Command{
+	var ee *exitError
+	if errors.As(err, &ee) {
+		return ee.code
+	}
+
+	// Safety net: a daemon-side conflict always exits 5 even if a command
+	// forgot to translate it.
+	var pe *protocol.Error
+	if errors.As(err, &pe) && pe.Code == protocol.CodeConflict {
+		return exitConflict
+	}
+
+	return exitGeneral
+}
+
+// errorMessage returns what main should print to stderr, or "" when the
+// command has already reported the outcome itself.
+func errorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ee *exitError
+	if errors.As(err, &ee) && ee.err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func main() {
+	err := newRootCmd().Execute()
+	if err == nil {
+		return
+	}
+	if msg := errorMessage(err); msg != "" {
+		fmt.Fprintln(os.Stderr, "tether: "+msg)
+	}
+	os.Exit(exitCodeFor(err))
+}
+
+const rootLong = `tether is a local message bus for coding agents.
+
+Agents register a name inside a workspace (the basename of the git root, or
+$TETHER_WORKSPACE) and address each other as name@workspace. A bare name is
+resolved against the current workspace.
+
+Typical session:
+
+  tether register --as frontend     # claim a name in this workspace
+  tether ls                         # see who else is here (bare "tether" does this too)
+  tether send --to backend "..."    # send a message
+  tether wait --timeout 60s         # block until mail arrives
+  tether inbox                      # read it -- this also clears it
+  tether inbox --peek               # look without clearing
+
+Message bodies should be passed with --body-file (use "-" for stdin) whenever
+they contain quotes, backticks, newlines or $ so the shell cannot mangle them.
+
+Exit codes:
+  0  success
+  1  general error
+  3  no tetherd running
+  4  wait timed out
+  5  conflict (for example, the name is already taken)`
+
+// newRootCmd's bare form runs `tether ls`; NoArgs makes a typo'd subcommand
+// fail loudly instead of silently running ls.
+func newRootCmd() *cobra.Command {
+	var opts lsOptions
+
+	root := &cobra.Command{
+		Use:           "tether",
+		Short:         "Local message bus for coding agents",
+		Long:          rootLong,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runLs(cmd, &opts)
+		},
+	}
+
+	opts.addWorkspace(root)
+	opts.addJSON(root)
+	root.Flags().BoolVar(&opts.all, "all", false, "list agents in every workspace, not just this one")
+
+	root.AddCommand(
+		newVersionCmd(),
+		newRegisterCmd(),
+		newSendCmd(),
+		newInboxCmd(),
+		newWaitCmd(),
+		newLsCmd(),
+		newExplainCmd(),
+		newDoctorCmd(),
+	)
+
+	return root
+}
+
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
@@ -39,66 +193,5 @@ func newRootCmd() *cobra.Command {
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 			return err
 		},
-	})
-
-	root.AddCommand(&cobra.Command{
-		Use:   "register",
-		Short: "Register this agent with the daemon",
-		RunE:  runRegister,
-	})
-
-	root.AddCommand(&cobra.Command{
-		Use:   "ls",
-		Short: "List all active agents",
-		RunE:  runLs,
-	})
-
-	return root
-}
-
-func runRegister(cmd *cobra.Command, _ []string) error {
-	res, err := callDaemon("register")
-	if err != nil {
-		return err
 	}
-
-	_, err = fmt.Fprintf(cmd.OutOrStderr(), "Successfully registered: %v\n", res.Result)
-	return err
-}
-
-func runLs(cmd *cobra.Command, _ []string) error {
-	res, err := callDaemon("list")
-	if err != nil {
-		_, writeErr := fmt.Fprintln(cmd.OutOrStderr(), err.Error())
-		return writeErr
-	}
-
-	agents, ok := res.Result.(map[string]any)
-	if !ok || len(agents) == 0 {
-		_, err := fmt.Fprintln(cmd.OutOrStdout(), "0 agents.")
-		return err
-	}
-
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%d agents online\n\n", len(agents)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%-15s %-15s\n", "NAME", "HARNESS"); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "-------------------------------"); err != nil {
-		return err
-	}
-
-	for name, metaAny := range agents {
-		meta, ok := metaAny.(map[string]any)
-		if !ok {
-			continue
-		}
-		harness, _ := meta["Harness"].(string)
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%-15s %-15s\n", name, harness); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

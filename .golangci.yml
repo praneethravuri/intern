@@ -11,3 +11,17 @@ linters:
     - revive
     - unconvert
     - unparam
+  exclusions:
+    rules:
+      # --body-file reads a path the user passed on the CLI by design; no
+      # elevated-privilege boundary is being crossed.
+      - path: cmd/tether/cmd_send\.go
+        linters:
+          - gosec
+        text: "G304"
+      # lock.go only opens/reads paths the daemon derives from its own
+      # socket path, never from untrusted input.
+      - path: cmd/tetherd/lock\.go
+        linters:
+          - gosec
+        text: "G304"

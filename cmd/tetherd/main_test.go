@@ -1,67 +1,179 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"log"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/praneethravuri/tether/internal/store"
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
-func TestHandleCommand_Register(t *testing.T) {
-	reg := NewRegistry()
-
-	res := handleCommand(protocol.Request{ID: "1", Method: "register"}, 1234, reg)
-	if res.Error != nil {
-		t.Fatalf("register failed: %v", res.Error)
-	}
-
-	agents := reg.List()
-	if len(agents) != 1 {
-		t.Fatalf("expected 1 agent registered, got %d", len(agents))
+func TestDaemonIsLive_NoSocketAtAll(t *testing.T) {
+	dir := shortTempDir(t)
+	if daemonIsLive(filepath.Join(dir, "does-not-exist")) {
+		t.Fatal("daemonIsLive on a missing path = true, want false")
 	}
 }
 
-func TestHandleCommand_List(t *testing.T) {
-	reg := NewRegistry()
-	if err := reg.Register("agent-1", AgentMeta{Harness: "claude-code", PID: 1}); err != nil {
-		t.Fatalf("seed register: %v", err)
-	}
+func TestDaemonIsLive_StaleSocketFile(t *testing.T) {
+	dir := shortTempDir(t)
+	path := filepath.Join(dir, "s")
 
-	// The CLI sends the lowercase method name "list" (see cmd/tether/client.go);
-	// handleCommand must match it or every ls falls through to the unknown-method case.
-	res := handleCommand(protocol.Request{ID: "1", Method: "list"}, 1234, reg)
-	if res.Error != nil {
-		t.Fatalf("list failed: %v", res.Error)
+	// A crashed daemon leaves a socket file behind that nothing is bound to.
+	// It must not be mistaken for a running daemon, or tetherd could never
+	// restart after a hard kill.
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
 	}
-
-	agents, ok := res.Result.(map[string]AgentMeta)
-	if !ok {
-		t.Fatalf("result type = %T, want map[string]AgentMeta", res.Result)
-	}
-	if len(agents) != 1 {
-		t.Errorf("expected 1 agent, got %d", len(agents))
+	if daemonIsLive(path) {
+		t.Fatal("daemonIsLive on a stale file = true, want false")
 	}
 }
 
-func TestHandleCommand_UnknownMethod(t *testing.T) {
-	reg := NewRegistry()
+func TestDaemonIsLive_BoundSocket(t *testing.T) {
+	dir := shortTempDir(t)
+	path := filepath.Join(dir, "s")
 
-	res := handleCommand(protocol.Request{ID: "1", Method: "bogus"}, 1234, reg)
-	if res.Error == nil {
-		t.Fatal("expected error for unknown method, got nil")
+	ln, err := protocol.Listen(path)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
 	}
-	if res.Error.Code != 2 {
-		t.Errorf("got error code %d, want 2", res.Error.Code)
+	defer func() { _ = ln.Close() }()
+
+	if !daemonIsLive(path) {
+		t.Fatal("daemonIsLive on a bound socket = false, want true")
+	}
+
+	// Once the listener goes away the path is free again.
+	_ = ln.Close()
+	if daemonIsLive(path) {
+		t.Fatal("daemonIsLive after close = true, want false")
 	}
 }
 
-func TestHandleCommand_RegisterDuplicatePID(t *testing.T) {
-	reg := NewRegistry()
-
-	if res := handleCommand(protocol.Request{ID: "1", Method: "register"}, 42, reg); res.Error != nil {
-		t.Fatalf("first register failed: %v", res.Error)
+func TestStartupErrorMessageIsPlain(t *testing.T) {
+	err := &startupError{"socket /tmp/sock is already served by a running tetherd"}
+	if err.Error() != "socket /tmp/sock is already served by a running tetherd" {
+		t.Fatalf("Error() = %q", err.Error())
 	}
-	res := handleCommand(protocol.Request{ID: "2", Method: "register"}, 42, reg)
-	if res.Error == nil {
-		t.Fatal("expected error registering the same PID twice, got nil")
+}
+
+// TestEndToEndOverRealSocket wires the daemon up the way main does -- open the
+// store, bind the socket, serve, cancel -- and drives a full agent lifecycle
+// across it. It is the smoke test that the wiring in run() is correct even
+// though run() itself resolves paths from the environment.
+func TestEndToEndOverRealSocket(t *testing.T) {
+	dir := shortTempDir(t)
+
+	st, err := store.Open(context.Background(), filepath.Join(dir, "tether.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	sock := filepath.Join(dir, "sock")
+	ln, err := protocol.Listen(sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	// The socket must not be world accessible: the message bus carries whatever
+	// the agents say to each other.
+	info, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Fatalf("socket mode = %o, want no group/other access", perm)
+	}
+
+	cfg := DefaultConfig()
+	cfg.Logger = log.New(io.Discard, "", 0)
+	srv := NewServer(st, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(ctx, ln) }()
+
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	enc := json.NewEncoder(conn)
+	dec := json.NewDecoder(conn)
+
+	call := func(id, method string, params any) protocol.Response {
+		t.Helper()
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if err := enc.Encode(protocol.Request{ID: id, Method: method, Params: raw}); err != nil {
+			t.Fatalf("write %s: %v", method, err)
+		}
+		var resp protocol.Response
+		if err := dec.Decode(&resp); err != nil {
+			t.Fatalf("read %s: %v", method, err)
+		}
+		if resp.Error != nil {
+			t.Fatalf("%s: %v", method, resp.Error)
+		}
+		return resp
+	}
+
+	call("1", protocol.MethodRegister, protocol.RegisterParams{Name: "alice", Workspace: "proj", SessionID: "s1"})
+	call("2", protocol.MethodRegister, protocol.RegisterParams{Name: "bob", Workspace: "proj", SessionID: "s2"})
+	call("3", protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj",
+		ToName: "bob", ToWorkspace: "proj",
+		Kind: store.KindQuestion, Body: "ship it?",
+	})
+
+	var inbox protocol.InboxResult
+	resp := call("4", protocol.MethodInbox, protocol.InboxParams{Name: "bob", Workspace: "proj"})
+	if err := json.Unmarshal(resp.Result, &inbox); err != nil {
+		t.Fatalf("decode inbox: %v", err)
+	}
+	if len(inbox.Messages) != 1 || inbox.Messages[0].Kind != store.KindQuestion {
+		t.Fatalf("inbox = %+v", inbox.Messages)
+	}
+
+	// A reply joins the question's thread.
+	resp = call("5", protocol.MethodSend, protocol.SendParams{
+		FromName: "bob", FromWorkspace: "proj",
+		ToName: "alice", ToWorkspace: "proj",
+		Kind: store.KindAnswer, Body: "ship it", ReplyTo: inbox.Messages[0].ID,
+	})
+	var sent protocol.SendResult
+	if err := json.Unmarshal(resp.Result, &sent); err != nil {
+		t.Fatalf("decode send: %v", err)
+	}
+	resp = call("6", protocol.MethodInbox, protocol.InboxParams{Name: "alice", Workspace: "proj"})
+	if err := json.Unmarshal(resp.Result, &inbox); err != nil {
+		t.Fatalf("decode inbox: %v", err)
+	}
+	if len(inbox.Messages) != 1 {
+		t.Fatalf("alice inbox = %d messages, want 1", len(inbox.Messages))
+	}
+	if inbox.Messages[0].ThreadID == inbox.Messages[0].ID {
+		t.Fatal("reply started its own thread instead of joining the question's")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Serve returned %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve did not return after cancellation")
 	}
 }
