@@ -15,7 +15,7 @@ DIST      := dist
 COVERFILE := coverage.out
 
 # Platforms for `make cross`, as GOOS/GOARCH pairs.
-PLATFORMS := linux/amd64 linux/arm64 darwin/arm64 windows/amd64
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 .DEFAULT_GOAL := help
 
