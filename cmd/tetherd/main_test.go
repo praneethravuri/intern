@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"io"
 	"log"
 	"net"
@@ -15,6 +17,40 @@ import (
 	"github.com/praneethravuri/tether/internal/store"
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
+
+func TestParseArgs(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr error // checked with errors.Is; nil means "some error"
+		wantOK  bool
+	}{
+		{name: "no arguments", args: nil, wantOK: true},
+		{name: "help flag", args: []string{"-h"}, wantErr: flag.ErrHelp},
+		{name: "long help flag", args: []string{"--help"}, wantErr: flag.ErrHelp},
+		{name: "unrecognized flag", args: []string{"-x"}},
+		{name: "stray positional argument", args: []string{"foo"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := parseArgs(tc.args)
+			switch {
+			case tc.wantOK:
+				if err != nil {
+					t.Fatalf("parseArgs(%v) = %v, want nil", tc.args, err)
+				}
+			case tc.wantErr != nil:
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("parseArgs(%v) = %v, want %v", tc.args, err, tc.wantErr)
+				}
+			default:
+				if err == nil {
+					t.Fatalf("parseArgs(%v) = nil, want an error", tc.args)
+				}
+			}
+		})
+	}
+}
 
 func TestDaemonIsLive_NoSocketAtAll(t *testing.T) {
 	dir := shortTempDir(t)
