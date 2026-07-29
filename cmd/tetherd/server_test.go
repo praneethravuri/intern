@@ -1571,7 +1571,7 @@ func TestRegisterSanitisesMetadata(t *testing.T) {
 		Harness:   "evil\x1b[31mharness",
 		SessionID: "sess\x07-1",
 		Cwd:       "/tmp/\x1b]0;pwned\x07repo",
-		PID:       1,
+		PID:       os.Getpid(),
 	}, &protocol.RegisterResult{})
 
 	var who protocol.WhoResult
@@ -1595,6 +1595,6 @@ func TestRegisterSanitisesMetadata(t *testing.T) {
 	// terminal could act on.
 	c.mustCall(protocol.MethodRegister, protocol.RegisterParams{
 		Name: "alice", Workspace: "proj",
-		Harness: "evil\x1b[31mharness", SessionID: "sess\x07-1", Cwd: "/tmp/repo", PID: 1,
+		Harness: "evil\x1b[31mharness", SessionID: "sess\x07-1", Cwd: "/tmp/repo", PID: os.Getpid(),
 	}, &protocol.RegisterResult{})
 }

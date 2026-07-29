@@ -47,9 +47,7 @@ codeDocs/
 # Cross-compilation output from `make cross`
 /dist/
 
-# Partial files the Go toolchain and gofmt leave behind when a write is
-# interrupted: `go build` writes <name>-go-tmp-umask, and gofmt -w writes
-# <file>.go.<random-digits> next to the original.
+# Partial files an interrupted `go build`/`gofmt -w` leaves behind.
 *-go-tmp-umask
 *.go.[0-9]*
 

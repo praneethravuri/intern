@@ -1,6 +1,4 @@
-# Keep the build context to what `go build ./cmd/...` actually needs: go.mod,
-# go.sum and the Go source tree. Everything else only makes the context bigger
-# and the layer cache more fragile.
+# Keep the build context to what `go build ./cmd/...` actually needs.
 
 # VCS and CI
 .git

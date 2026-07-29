@@ -6,8 +6,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine AS builder
 
 WORKDIR /src
 
-# Dependencies first so a source-only change does not re-download the module
-# graph. The cache mount keeps the module cache warm across builds too.
+# Dependencies first so a source-only change doesn't re-download the module graph.
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
@@ -20,9 +19,8 @@ ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
 
-# CGO_ENABLED=0 is not an optimisation: the SQLite driver (modernc.org/sqlite)
-# is pure Go, so the result is a static binary with no libc dependency, which
-# is what makes the distroless static base below viable.
+# CGO_ENABLED=0: modernc.org/sqlite is pure Go, so this is a static binary
+# with no libc dependency, which is what makes distroless static viable below.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
@@ -32,9 +30,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
         -o /out/tetherd ./cmd/tetherd
 
-# tetherd stores the socket and the database under $HOME. Create the directory
-# here, owned by the runtime user, because the distroless stage has no shell to
-# create it and the daemon runs unprivileged.
+# Distroless has no shell to create this later, so it's created here instead.
 RUN mkdir -p /home/nonroot/.tether && chown -R 65532:65532 /home/nonroot
 
 # ---- runtime ---------------------------------------------------------------
