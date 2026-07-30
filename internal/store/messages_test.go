@@ -975,6 +975,43 @@ func TestSendEnforcesInboxDepthDropsOldest(t *testing.T) {
 	}
 }
 
+// TestSendEnforcesInboxDepthPrefersDroppingNotes sends a handoff first, then
+// floods the inbox past the cap with notes. Eviction must take the oldest
+// notes, not the oldest message overall -- the handoff survives regardless
+// of its age.
+func TestSendEnforcesInboxDepthPrefersDroppingNotes(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	pair(t, s)
+
+	handoff := note("the actual task")
+	handoff.Kind = KindHandoff
+	handoffID := mustSend(t, s, handoff)
+
+	const over = 5
+	notes := make([]string, 0, maxInboxDepth+over-1)
+	for i := 0; i < maxInboxDepth+over-1; i++ {
+		notes = append(notes, mustSend(t, s, note(fmt.Sprintf("m%d", i))))
+	}
+
+	a, err := s.GetAgent(ctx, "ws", "bob")
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	if a.Dropped != over {
+		t.Fatalf("agents.dropped = %d, want %d", a.Dropped, over)
+	}
+
+	pending, err := s.Inbox(ctx, "ws", "bob", maxInboxDepth+1)
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	wantAlive := append([]string{handoffID}, notes[over:]...)
+	if !equalStrings(ids(pending), wantAlive) {
+		t.Fatalf("pending after drops = %v, want %v", ids(pending), wantAlive)
+	}
+}
+
 func TestSendAtExactlyMaxInboxDepthDropsNothing(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
