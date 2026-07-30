@@ -72,7 +72,7 @@ func TestRequest_RoundTripAllMethods(t *testing.T) {
 		{MethodSend, SendParams{FromName: "a", FromWorkspace: "w", FromSession: "s", ToName: "b", ToWorkspace: "w", Kind: "ask", Body: "hi", ReplyTo: "m1"}},
 		{MethodInbox, InboxParams{Name: "a", Workspace: "w", Limit: 10, Replay: true}},
 		{MethodWait, WaitParams{Name: "a", Workspace: "w", TimeoutMS: 5000}},
-		{MethodLs, WhoParams{Workspace: "w", All: true}},
+		{MethodLs, WhoParams{Workspace: "w"}},
 		{MethodExplain, StatusParams{Name: "a", Workspace: "w"}},
 	}
 

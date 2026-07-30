@@ -266,23 +266,6 @@ func (c *client) inboxPeek(name string) []protocol.MessageView {
 
 // -- registration -----------------------------------------------------------
 
-// TestStats proves doctor's database health line reaches the wire: the
-// method dispatches, and reflects real registrations/messages.
-func TestStats(t *testing.T) {
-	ts := newTestServer(t, nil)
-	c := ts.dial()
-
-	c.register("alice", "proj", "sess-1")
-	c.register("bob", "proj", "sess-2")
-	c.send("hi")
-
-	var st protocol.StatsResult
-	c.mustCall(protocol.MethodStats, nil, &st)
-	if st.Agents != 2 || st.Messages != 1 {
-		t.Fatalf("stats = %+v, want 2 agents, 1 message", st)
-	}
-}
-
 func TestRegister(t *testing.T) {
 	ts := newTestServer(t, nil)
 	c := ts.dial()
@@ -738,7 +721,7 @@ func TestSend_UnknownRecipientTypoSuggestsTheCloseMatch(t *testing.T) {
 	c.register("backend", "proj", "s2")
 
 	e := c.mustFail(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "backand", ToWorkspace: "proj", Body: "hi",
+		FromName: "alice", FromWorkspace: "proj", ToName: "back", ToWorkspace: "proj", Body: "hi",
 	}, protocol.CodeNotFound)
 	if !strings.Contains(e.Message, "did you mean") || !strings.Contains(e.Message, "backend@proj") {
 		t.Fatalf("error message = %q, want a did-you-mean pointing at backend@proj", e.Message)
@@ -956,9 +939,9 @@ func TestWhoStatus(t *testing.T) {
 		t.Fatalf("who(proj) = %+v, want just alice@proj", who.Agents)
 	}
 
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{All: true}, &who)
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{}, &who)
 	if len(who.Agents) != 2 {
-		t.Fatalf("who(all) = %d agents, want 2", len(who.Agents))
+		t.Fatalf("who(all workspaces) = %d agents, want 2", len(who.Agents))
 	}
 
 	var st protocol.StatusResult
@@ -970,30 +953,6 @@ func TestWhoStatus(t *testing.T) {
 		t.Fatalf("last_seen %q is not RFC3339: %v", st.Agent.LastSeen, err)
 	}
 	_ = c.mustFail(protocol.MethodExplain, protocol.StatusParams{Name: "ghost", Workspace: "proj"}, protocol.CodeNotFound)
-}
-
-// TestWho_AllWithExplicitWorkspaceIsNotDiscarded is the P1 fix: handleLs
-// used to blank the workspace unconditionally whenever --all was set, even
-// when the caller ALSO named an explicit --workspace, silently widening the
-// query to every workspace. --all and --workspace must compose: an explicit
-// workspace always wins.
-func TestWho_AllWithExplicitWorkspaceIsNotDiscarded(t *testing.T) {
-	ts := newTestServer(t, nil)
-	c := ts.dial()
-	c.register("alice", "proj", "s1")
-	c.register("carol", "other", "s2")
-
-	var who protocol.WhoResult
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{All: true, Workspace: "proj"}, &who)
-	if len(who.Agents) != 1 || who.Agents[0].Address != "alice@proj" {
-		t.Fatalf("who(all=true, workspace=proj) = %+v, want just alice@proj", who.Agents)
-	}
-
-	// Sanity: --all with no explicit workspace still means every workspace.
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{All: true}, &who)
-	if len(who.Agents) != 2 {
-		t.Fatalf("who(all=true) = %d agents, want 2", len(who.Agents))
-	}
 }
 
 // TestWho_BlockedStateClearsOnRelease proves blocked is read from the live

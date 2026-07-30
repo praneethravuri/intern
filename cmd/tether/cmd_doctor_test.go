@@ -17,17 +17,13 @@ func TestDoctorWithAHealthyDaemon(t *testing.T) {
 
 	r := mustRun(t, newDoctorCmd(), "")
 
-	// A healthy daemon gets a second request for the database health line.
 	reqs := d.requests()
-	if len(reqs) != 2 {
-		t.Fatalf("daemon received %d requests, want 2 (ls, stats): %+v", len(reqs), reqs)
+	if len(reqs) != 1 {
+		t.Fatalf("daemon received %d requests, want 1 (ls): %+v", len(reqs), reqs)
 	}
 	params := decodeParams[protocol.WhoParams](t, reqs[0])
 	if params.Workspace != "storefront" {
 		t.Fatalf("workspace = %q, want storefront", params.Workspace)
-	}
-	if reqs[1].Method != protocol.MethodStats {
-		t.Fatalf("second request method = %q, want %q", reqs[1].Method, protocol.MethodStats)
 	}
 
 	out := r.stdout
@@ -134,9 +130,9 @@ func TestDoctorReportHasNoSocketExistsField(t *testing.T) {
 }
 
 // TestDoctorReportsDatabaseHealth proves doctor's database line covers what
-// "is the DB getting too big" actually needs: path, size, and row counts --
-// answered with a real, on-disk database via TETHER_DB, not the fake
-// daemon's canned agent list.
+// "is the DB getting too big" actually needs: path and size -- answered with
+// a real, on-disk database via TETHER_DB, not the fake daemon's canned agent
+// list.
 func TestDoctorReportsDatabaseHealth(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	clearHarnessEnv(t)
@@ -147,12 +143,7 @@ func TestDoctorReportsDatabaseHealth(t *testing.T) {
 	}
 	t.Setenv("TETHER_DB", dbPath)
 
-	newFakeDaemon(t, func(req protocol.Request) protocol.Response {
-		if req.Method == protocol.MethodStats {
-			return protocol.OK(req.ID, protocol.StatsResult{Messages: 42, Agents: 3, Observations: 100})
-		}
-		return protocol.OK(req.ID, agents())
-	})
+	newFakeDaemon(t, okHandler(agents()))
 
 	r := mustRun(t, newDoctorCmd(), "", "--json")
 
@@ -165,16 +156,12 @@ func TestDoctorReportsDatabaseHealth(t *testing.T) {
 	if got.DBSizeBytes <= 0 {
 		t.Fatalf("db_size_bytes = %d, want > 0", got.DBSizeBytes)
 	}
-	if got.DBRows == nil || *got.DBRows != (doctorDBRows{Messages: 42, Agents: 3, Observations: 100}) {
-		t.Fatalf("db_rows = %+v, want messages=42 agents=3 observations=100", got.DBRows)
-	}
 	if got.DaemonLogPath == "" {
 		t.Fatal("daemon_log_path is empty")
 	}
 
 	human := mustRun(t, newDoctorCmd(), "").stdout
 	requireContains(t, human, dbPath, "human output")
-	requireContains(t, human, "42", "human output")
 	requireContains(t, human, got.DaemonLogPath, "human output")
 }
 
