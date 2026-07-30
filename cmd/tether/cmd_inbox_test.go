@@ -22,7 +22,7 @@ func twoMessages() protocol.InboxResult {
 				To:        "frontend@storefront",
 				Kind:      kindHandoff,
 				Body:      "Logo is at assets/logo.png — 512x512, transparent.",
-				CreatedAt: ago(40 * time.Second),
+				CreatedAt: ago(2 * time.Minute),
 			},
 			{
 				ID:        "01K1QX9A0B1C2D3E4F5G6H7J",
@@ -54,7 +54,7 @@ func TestInboxHappyPath(t *testing.T) {
 	}
 
 	out := r.stdout
-	requireContains(t, out, "[01K1QW8Z3M4T7V9XBCDEF2GH] codex@storefront · handoff · 40s ago", "stdout")
+	requireContains(t, out, "[01K1QW8Z3M4T7V9XBCDEF2GH] codex@storefront · handoff · 2m ago", "stdout")
 	requireContains(t, out, "  Logo is at assets/logo.png — 512x512, transparent.", "stdout")
 	requireContains(t, out, "3m ago", "stdout")
 	requireContains(t, out, "reply to 01KPARENT", "stdout")

@@ -25,7 +25,6 @@ Nothing wraps how you launch your agents. You keep running `claude`, `codex`, `a
 - [Flags](#flags)
 - [Exit codes](#exit-codes)
 - [How it works](#how-it-works)
-- [Behavior details](#behavior-details)
 - [Configuration](#configuration)
 - [Development](#development)
 - [License](#license)
@@ -37,8 +36,6 @@ Nothing wraps how you launch your agents. You keep running `claude`, `codex`, `a
 ```sh
 curl -fsSL https://praneethravuri.github.io/tether/install.sh | sh
 ```
-
-Installs `tether` to `~/.local/bin` (override with `TETHER_INSTALL_DIR`), verifying the download against the release's checksums. Never uses sudo. macOS and Linux only.
 
 Pin a version with `TETHER_VERSION=v0.2.0 curl ... | sh`. To uninstall, remove the binary and `~/.tether`.
 
@@ -68,8 +65,6 @@ make build          # produces ./tether, version stamped from git
 npx skills add praneethravuri/tether
 ```
 
-Installs `skills/tether/SKILL.md` into your project with everything an agent needs to know to use `tether` — naming conventions, message kinds, exit codes. Works with Claude Code, Cursor, Codex, Gemini CLI, and roughly 70 other harnesses that installer supports. This is the standing-instructions path: no `CLAUDE.md`/`AGENTS.md` paste-in required.
-
 ## Quickstart
 
 These are agent commands, not yours — once the [skill](#skill) is installed, your coding agents run them on their own. Say you have Claude Code and Codex open in the same repo, each working on a different part of the same feature:
@@ -91,11 +86,9 @@ Frontend's `wait` returns as soon as the message arrives; it reads it with `teth
 
 Both agents resolved the same workspace — the basename of the git root — so the bare name `frontend` was enough. Across repos, address the full `name@workspace`.
 
-There is no daemon to start by hand and nothing to export. If the socket is dead, the first command run spawns a detached daemon automatically (logging to `~/.tether/daemon.log`, truncated at 1 MB) and retries once. `register` itself is optional — every command derives a name like `claude-code-3f1a` from the harness and session if nothing was given it with `--as` or registered earlier in that session. `register <name>` exists so an agent (or you, testing by hand) can pick a name deliberately and see it confirmed.
-
 ## CLI Reference
 
-Every command accepts `--json` for machine-readable output, and `--as <name>` / `--workspace <name>` to act as a name or workspace other than the ones auto-detected for this shell session. Every command except `doctor` auto-starts the daemon when the socket is dead and retries once — `doctor` only diagnoses, so it stays trustworthy as a health check.
+Every command accepts `--json`, `--as <name>`, and `--workspace <name>`, and auto-starts the daemon if it isn't running — except `doctor`, which only diagnoses.
 
 | Command | What it does |
 | --- | --- |
@@ -108,8 +101,6 @@ Every command accepts `--json` for machine-readable output, and `--as <name>` / 
 | `tether explain [name[@workspace]]` (alias `status`) | Explains one agent's computed state, the evidence behind it, and its pending mail. Defaults to you. |
 | `tether doctor` | Diagnoses the daemon, resolved workspace, detected harness, database health, and every agent. Never auto-starts. |
 | `tether version` | Prints the version. |
-
-`tether who` is gone, including as an alias — `tether ls` is the only listing command now. There's also no `ack`, `heartbeat`, or `unregister` command: reading an inbox is how mail is acknowledged (see [Inbox contract](#inbox-contract)); presence is refreshed automatically by every command you run; a dead process is detected, not declared.
 
 ## Flags
 
@@ -165,75 +156,6 @@ Exit codes are part of the contract — a script or an agent branches on these, 
 ```
 
 The CLI is stateless: it opens the socket, writes one JSON request, reads one JSON response, and exits. All state lives in the daemon's SQLite database, so messages survive a daemon restart and a crashed agent loses nothing.
-
-**Package layout**, for anyone reading the source:
-
-| Package | Role |
-| --- | --- |
-| `cmd/tether` | the CLI: one `cmd_*.go` per subcommand, identity resolution, the socket client, auto-start, and the shared human-output helpers |
-| `internal/daemon` | the daemon: request dispatch, the wait registry, computed agent state, the startup lock, the background sweep |
-| `pkg/protocol` | the wire format (newline-delimited JSON request/response) and socket transport, shared by both sides |
-| `internal/store` | SQLite persistence: agents, messages |
-| `internal/id` | monotonic ULID generation, used for both message ids and request ids |
-| `internal/wsname` | resolves a working directory to a workspace name from the git root |
-
-**Why a daemon at all.** The obvious alternative — every agent opening the same SQLite file directly — puts several processes on one file with no coordination beyond file locks: `SQLITE_BUSY` storms, and a corrupt database if a process dies mid-write. Routing every write through one process removes that failure mode structurally rather than mitigating it: the write pool is pinned to a single connection, so writes queue instead of colliding, while a separate read pool means a long read never blocks a write.
-
-**`wait` is a long poll, not a loop.** `tether wait` parks on the daemon, and every `send` wakes the recipient's parked call directly — no interval to tune, no missed-then-caught-up delay. It needs zero integration from the harness, so it works even on harnesses with no plugin surface at all. What it doesn't do (yet) is interrupt a harness that isn't already in `wait` — an agent still has to poll `inbox` or block on `wait` to notice mail; `tether doctor` says so plainly.
-
-**No runtime dependencies.** The binary is static: `CGO_ENABLED=0` with a pure-Go SQLite driver (`modernc.org/sqlite`). No C toolchain to build with, no system SQLite to install, nothing needed at runtime but the binary.
-
-## Behavior details
-
-### Passing bodies safely
-
-A body given as a positional argument goes through the shell first. Whenever it contains quotes, backticks, newlines or `$`, pass it on stdin instead — what's read is sent byte for byte, with no trimming or interpretation:
-
-```sh
-tether send reviewer --kind handoff --body-file - <<'EOF'
-Refactored `parseConfig` — it now returns (Config, error).
-Callers in cmd/ still expect the old signature.
-EOF
-```
-
-`--body-file <path>` reads a file; `--body-file -` reads stdin.
-
-### Broadcast
-
-`tether send '*' "..."` or `tether send all "..."` delivers to every other agent currently registered in the workspace — never back to the sender, even if the sender's own name happens to match. Quote `*` so the shell doesn't glob-expand it. The result reports how many agents actually received it (`SendResult.Delivered`/`Recipients` in `--json`); zero recipients is a normal, unremarkable outcome, not an error.
-
-### Inbox contract
-
-- **Default (`tether inbox`)**: drains — shows and acknowledges in the same call, so there's no window where a message was shown but not yet marked handled.
-- **`--peek`**: shows what's pending without clearing anything.
-- **`--replay`**: shows messages an earlier drain already delivered, going back up to 7 days — the "what did I already handle?" view. Older history is gone, not hidden: it's deleted in the retention sweep described in [Bounds](#bounds).
-- **`--full`**: shows every message body in full. Without it, a body over 2000 characters is truncated in the human-readable view with a `... (N bytes total, --full for all)` hint. `--json` is never truncated, with or without `--full`.
-
-Reading is destructive only through a drain: an agent that reads its mail and then crashes before acting on it doesn't lose the message on restart, because the ack and the read happen together, in one transaction, or not at all.
-
-### Bounds
-
-- A single message body is capped at 64 KiB (`ErrBodyTooLarge` if exceeded).
-- One agent's pending mail is capped at 500 messages. Past that, the oldest **`note`** is dropped first; `handoff`/`question`/`answer` only start dropping once every pending `note` is gone. Either way, it's oldest-first within that group — a silent agent loses its stalest context, never the message that just arrived.
-- Every drop increments a per-agent dropped counter, surfaced by `tether ls` (the `PENDING` column, as `N (+M dropped)`), `tether explain`, and `tether inbox`'s stderr warning. Degradation is visible, never silent, and the counter resets to zero the next time that agent actually drains its inbox.
-- Unacked mail nobody ever comes back for is swept and marked dead after 24 hours instead of kept forever. Read-or-dead mail older than **7 days** is then deleted outright in the same background sweep, so the database doesn't grow without bound. No `VACUUM` runs; SQLite reuses the freed space, so the file plateaus rather than shrinks.
-- `tether doctor` reports the database's file path, its size on disk, and the daemon log path — so "is my DB getting too big" has a direct answer.
-
-### Agent state
-
-`tether ls` and `tether explain` compute a state for every agent fresh on each call — nothing is stored as truth. In priority order:
-
-1. **`gone`** — the registered process is no longer alive.
-2. **`blocked`** — the agent is parked in a live `tether wait` call right now.
-3. **`working`** — the agent ran some `tether` command within the last 60 seconds.
-4. **`quiet`** — the agent has run a `tether` command before, just not recently.
-5. **`unknown`** — the agent is registered but nothing has been observed about it since.
-
-`tether explain` shows the evidence behind the state (`source`, `seen`, `detail`) as well as the state itself, so you can decide whether to trust it before sending someone work.
-
-### Output contract
-
-Every command's real output — the summary line, table rows, message bodies, `Next:` suggestions, and the entirety of `--json` — goes to **stdout**. Warnings secondary to what you asked for — a dropped-mail count, an unrecognised harness, doctor's other diagnostic notes — go to **stderr**, so scripting against stdout never has to filter noise out of it. `tether: <message>` on a failure is also stderr. `--json` is the machine channel: pass it whenever another program, not a human, has to parse the result.
 
 ## Configuration
 
