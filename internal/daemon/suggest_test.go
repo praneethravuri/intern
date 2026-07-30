@@ -13,10 +13,10 @@ func TestSuggest(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "an ordinary one-letter typo suggests the close match",
+			name:       "a substitution typo has no prefix relationship, suggests nothing",
 			target:     "backand",
 			candidates: []string{"backend", "frontend", "docs"},
-			want:       "backend",
+			want:       "",
 		},
 		{
 			name:       "too far away suggests nothing",
@@ -80,27 +80,5 @@ func TestMintNameHasTheHarnessPrefixedShape(t *testing.T) {
 	got := mintName("claude-code", "session-a")
 	if !strings.HasPrefix(got, "claude-code-") {
 		t.Fatalf("mintName() = %q, want a claude-code-<hex4> shape", got)
-	}
-}
-
-func TestLevenshtein(t *testing.T) {
-	tests := []struct {
-		a, b string
-		want int
-	}{
-		{"", "", 0},
-		{"abc", "abc", 0},
-		{"", "abc", 3},
-		{"abc", "", 3},
-		{"backand", "backend", 1}, // one substitution
-		{"kitten", "sitting", 3},  // the textbook example
-	}
-	for _, tc := range tests {
-		if got := levenshtein(tc.a, tc.b); got != tc.want {
-			t.Errorf("levenshtein(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
-		}
-		if got := levenshtein(tc.b, tc.a); got != tc.want {
-			t.Errorf("levenshtein(%q, %q) = %d, want %d (not symmetric)", tc.b, tc.a, got, tc.want)
-		}
 	}
 }

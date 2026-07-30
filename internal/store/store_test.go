@@ -381,30 +381,6 @@ func TestRenameToTheSameNameIsANoOpRefresh(t *testing.T) {
 	}
 }
 
-// TestStats proves doctor's database health line reflects actual row counts
-// across all three tables, not just the pending-mail view most other
-// queries filter down to.
-func TestStats(t *testing.T) {
-	ctx := context.Background()
-	s := newStore(t)
-
-	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", Cwd: "/a"})
-	mustRegister(t, s, Agent{Workspace: "ws", Name: "bob", Cwd: "/b"})
-	mustSend(t, s, Message{FromName: "alice", FromWS: "ws", ToName: "bob", ToWS: "ws", Body: "hi"})
-	if err := s.Observe(ctx, Observation{Workspace: "ws", Name: "alice", Kind: "tool"}); err != nil {
-		t.Fatalf("Observe: %v", err)
-	}
-
-	got, err := s.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats: %v", err)
-	}
-	want := Stats{Messages: 1, Agents: 2, Observations: 1}
-	if got != want {
-		t.Fatalf("Stats = %+v, want %+v", got, want)
-	}
-}
-
 func TestListAgentsFiltersByWorkspaceAndStaleness(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

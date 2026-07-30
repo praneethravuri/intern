@@ -261,28 +261,6 @@ func (s *Store) nowMS() int64 {
 	return s.now().UnixMilli()
 }
 
-// Stats is a row count per table, for doctor's database health line.
-type Stats struct {
-	Messages     int
-	Agents       int
-	Observations int
-}
-
-// Stats reports how many rows each table holds.
-func (s *Store) Stats(ctx context.Context) (Stats, error) {
-	var st Stats
-	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages`).Scan(&st.Messages); err != nil {
-		return Stats{}, fmt.Errorf("store: stats: %w", err)
-	}
-	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents`).Scan(&st.Agents); err != nil {
-		return Stats{}, fmt.Errorf("store: stats: %w", err)
-	}
-	if err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM observations`).Scan(&st.Observations); err != nil {
-		return Stats{}, fmt.Errorf("store: stats: %w", err)
-	}
-	return st, nil
-}
-
 // now reads Now defensively so a zero-valued Store still works.
 func (s *Store) now() time.Time {
 	if s.Now != nil {
