@@ -387,3 +387,28 @@ func (s *Store) PurgeMessages(ctx context.Context, olderThan time.Duration) (int
 	}
 	return int(n), nil
 }
+
+// PendingByWorkspace returns pending message counts per recipient name in a workspace.
+func (s *Store) PendingByWorkspace(ctx context.Context, ws string) (map[string]int, error) {
+	rows, err := s.r.QueryContext(ctx, qPendingByWorkspace, ws)
+	if err != nil {
+		return nil, fmt.Errorf("store: pending by workspace %s: %w", ws, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make(map[string]int)
+	for rows.Next() {
+		var (
+			name string
+			n    int
+		)
+		if err := rows.Scan(&name, &n); err != nil {
+			return nil, fmt.Errorf("store: pending by workspace %s: %w", ws, err)
+		}
+		out[name] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: pending by workspace %s: %w", ws, err)
+	}
+	return out, nil
+}

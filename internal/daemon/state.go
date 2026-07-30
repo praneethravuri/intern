@@ -10,20 +10,20 @@ import (
 
 // stateReport is the computed, never-persisted answer for "what is this agent doing?"
 type stateReport struct {
-	State  string        // gone | blocked | working | idle | unknown
-	Source string        // pid | wait | observation | registration
+	State  string        // gone | blocked | working | quiet | unknown
+	Source string        // pid | wait | heartbeat | registration
 	Age    time.Duration // age of the evidence, not of the agent itself
 	Detail string        // human-readable evidence, for `tether explain`
 }
 
 // workingWindow is how recently an agent must have run a tether command to
-// read as working rather than idle.
+// read as working rather than quiet.
 const workingWindow = 60 * time.Second
 
-// computeState answers in strict priority: gone > blocked > working > idle > unknown.
-// blocked comes from the live wait registry, not the observation log, since a
+// computeState answers in strict priority: gone > blocked > working > quiet > unknown.
+// blocked comes from the live wait registry, not agents.last_seen, since a
 // parked wait can't outlive the process holding it.
-func computeState(a store.Agent, last store.Observation, blocked bool, now time.Time) stateReport {
+func computeState(a store.Agent, blocked bool, now time.Time) stateReport {
 	if a.PID > 0 && !proc.AliveAt(a.PID, a.PIDStart) {
 		return stateReport{State: "gone", Source: "pid", Age: now.Sub(a.LastSeen),
 			Detail: fmt.Sprintf("pid %d is gone", a.PID)}
@@ -32,14 +32,17 @@ func computeState(a store.Agent, last store.Observation, blocked bool, now time.
 		return stateReport{State: "blocked", Source: "wait", Age: 0,
 			Detail: "parked in tether wait"}
 	}
-	if !last.At.IsZero() {
-		age := now.Sub(last.At)
-		if age < workingWindow {
-			return stateReport{State: "working", Source: "observation", Age: age,
-				Detail: fmt.Sprintf("ran tether %s", last.Kind)}
+	if a.LastKind != "" {
+		age := now.Sub(a.LastSeen)
+		state, verb := "working", "ran"
+		if age >= workingWindow {
+			state, verb = "quiet", "last ran"
 		}
-		return stateReport{State: "idle", Source: "observation", Age: age,
-			Detail: fmt.Sprintf("last ran tether %s", last.Kind)}
+		detail := fmt.Sprintf("%s tether %s", verb, a.LastKind)
+		if a.LastNote != "" {
+			detail = a.LastNote
+		}
+		return stateReport{State: state, Source: "heartbeat", Age: age, Detail: detail}
 	}
 	return stateReport{State: "unknown", Source: "registration", Age: now.Sub(a.RegisteredAt),
 		Detail: "registered; nothing observed since"}

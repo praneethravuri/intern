@@ -19,7 +19,7 @@ func TestParamsAndResults_RoundTrip(t *testing.T) {
 		Workspace:    "tether",
 		Harness:      "claude-code",
 		State:        "working",
-		StateSource:  "observation",
+		StateSource:  "heartbeat",
 		StateAgeMS:   1500,
 		StateDetail:  "ran tether send",
 		Cwd:          "/home/p/tether",
