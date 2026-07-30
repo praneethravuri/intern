@@ -47,7 +47,7 @@ func TestAuthenticate_StoreErrorPropagates(t *testing.T) {
 	}
 }
 
-func TestTouch_LogsObserveAndHeartbeatFailuresWithoutPropagating(t *testing.T) {
+func TestTouch_LogsHeartbeatFailuresWithoutPropagating(t *testing.T) {
 	var mu sync.Mutex
 	var buf bytes.Buffer
 	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0) })
@@ -84,7 +84,7 @@ func TestSweepOnce_LogsStoreFailuresWithoutPanicking(t *testing.T) {
 	}
 }
 
-func TestSweepOnce_SweepsDeadMessagesAndOldObservations(t *testing.T) {
+func TestSweepOnce_SweepsDeadMessages(t *testing.T) {
 	var mu sync.Mutex
 	var buf bytes.Buffer
 	clk := newFakeClock()
@@ -103,9 +103,6 @@ func TestSweepOnce_SweepsDeadMessagesAndOldObservations(t *testing.T) {
 	if _, err := ts.store.Send(ctx, store.Message{FromName: "alice", FromWS: "ws", ToName: "bob", ToWS: "ws", Kind: store.KindNote, Body: "hi"}); err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	if err := ts.store.Observe(ctx, store.Observation{Workspace: "ws", Name: "alice", Kind: "tool"}); err != nil {
-		t.Fatalf("observe: %v", err)
-	}
 
 	clk.advance(2 * time.Minute)
 	ts.srv.sweepOnce(ctx)
@@ -115,9 +112,6 @@ func TestSweepOnce_SweepsDeadMessagesAndOldObservations(t *testing.T) {
 	mu.Unlock()
 	if !strings.Contains(got, "swept 1 dead message") {
 		t.Errorf("sweepOnce did not report sweeping the dead message: %q", got)
-	}
-	if !strings.Contains(got, "swept 1 observation") {
-		t.Errorf("sweepOnce did not report sweeping the old observation: %q", got)
 	}
 }
 

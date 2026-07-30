@@ -9,6 +9,9 @@ type RegisterParams struct {
 	Cwd       string `json:"cwd"`
 	// PID is the session process (shell/harness), not the short-lived CLI call.
 	PID int `json:"pid"`
+	// Doing is free text shown by tether explain when present; empty leaves
+	// whatever note was set before untouched.
+	Doing string `json:"doing,omitempty"`
 }
 
 // RegisterResult is the result for MethodRegister.
@@ -40,12 +43,14 @@ type SendParams struct {
 	ReplyTo     string `json:"reply_to"`
 }
 
-// SendResult is the result for MethodSend. A unicast send sets MessageID; a
-// broadcast sets Recipients and Delivered instead.
+// SendResult is the result for MethodSend. A unicast send sets MessageID and
+// RecipientState; a broadcast sets Recipients and Delivered instead -- there
+// is no single recipient state to report for a broadcast.
 type SendResult struct {
-	MessageID  string   `json:"message_id,omitempty"`
-	Recipients []string `json:"recipients,omitempty"`
-	Delivered  int      `json:"delivered,omitempty"`
+	MessageID      string   `json:"message_id,omitempty"`
+	RecipientState string   `json:"recipient_state,omitempty"`
+	Recipients     []string `json:"recipients,omitempty"`
+	Delivered      int      `json:"delivered,omitempty"`
 }
 
 // InboxParams is the payload for MethodInbox.

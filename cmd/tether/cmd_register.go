@@ -24,8 +24,13 @@ confirmed up front. With no name at all, the daemon mints one and reports it.
 Running this again with a different name renames you in place, and moves
 your pending mail along with it -- your old name stops working immediately.`
 
+type registerOptions struct {
+	identityFlags
+	doing string
+}
+
 func newRegisterCmd() *cobra.Command {
-	var opts identityFlags
+	var opts registerOptions
 
 	cmd := &cobra.Command{
 		Use:   "register [name]",
@@ -33,6 +38,7 @@ func newRegisterCmd() *cobra.Command {
 		Long:  registerLong,
 		Example: "  tether register frontend\n" +
 			"  tether register backend --workspace storefront\n" +
+			"  tether register --doing \"compiling tests, ~5min\"\n" +
 			"  tether register --json",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,11 +48,13 @@ func newRegisterCmd() *cobra.Command {
 
 	opts.addIdentity(cmd)
 	opts.addJSON(cmd)
+	cmd.Flags().StringVar(&opts.doing, "doing", "",
+		"what you're doing right now, shown by tether explain (e.g. \"compiling tests, ~5min\")")
 
 	return quiet(cmd)
 }
 
-func runRegister(cmd *cobra.Command, args []string, opts *identityFlags) error {
+func runRegister(cmd *cobra.Command, args []string, opts *registerOptions) error {
 	nameFlag := opts.name
 	if len(args) == 1 && strings.TrimSpace(args[0]) != "" {
 		nameFlag = args[0]
@@ -71,6 +79,7 @@ func runRegister(cmd *cobra.Command, args []string, opts *identityFlags) error {
 		SessionID: sessionID,
 		Cwd:       cwd,
 		PID:       os.Getppid(), // the shell, not this short-lived CLI process
+		Doing:     opts.doing,
 	}
 
 	var res protocol.RegisterResult

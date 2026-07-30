@@ -284,6 +284,39 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestRegister_DoingSetsLastNoteAndSurvivesAnEmptyReregister proves --doing
+// shows up in explain's detail, and that a later register (or any other
+// command's implicit re-register) with an empty Doing does not clear it --
+// the gotcha being guarded against is every other command re-registering
+// on every call.
+func TestRegister_DoingSetsLastNoteAndSurvivesAnEmptyReregister(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	c.mustCall(protocol.MethodRegister, protocol.RegisterParams{
+		Name: "alice", Workspace: "proj", Harness: "test", SessionID: "sess-1",
+		Cwd: "/tmp", PID: os.Getpid(), Doing: "compiling tests, ~5min",
+	}, &protocol.RegisterResult{})
+
+	var st protocol.StatusResult
+	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	if st.Agent.StateDetail != "compiling tests, ~5min" {
+		t.Fatalf("StateDetail = %q, want the note", st.Agent.StateDetail)
+	}
+
+	// An implicit re-register (every command sends one) has nothing to say
+	// about Doing, so it must send an empty string, not repeat the old note.
+	c.mustCall(protocol.MethodRegister, protocol.RegisterParams{
+		Name: "alice", Workspace: "proj", Harness: "test", SessionID: "sess-1",
+		Cwd: "/tmp", PID: os.Getpid(),
+	}, &protocol.RegisterResult{})
+
+	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	if st.Agent.StateDetail != "compiling tests, ~5min" {
+		t.Fatalf("StateDetail after empty-Doing re-register = %q, want the note preserved", st.Agent.StateDetail)
+	}
+}
+
 func TestRegister_DuplicateNameFromAnotherSessionConflicts(t *testing.T) {
 	ts := newTestServer(t, nil)
 
@@ -558,6 +591,73 @@ func TestSend_EmptyStoredSessionStillAllowed(t *testing.T) {
 		FromName: "alice", FromWorkspace: "proj", FromSession: "whatever-i-like",
 		ToName: "bob", ToWorkspace: "proj", Body: "hi",
 	}, &protocol.SendResult{})
+}
+
+// TestSend_ReportsRecipientState proves a unicast send's response tells the
+// sender what the recipient looks like right now, so a message landing in a
+// queue nobody's watching isn't silent. blocked outranks a fresh heartbeat,
+// per computeState's own priority order.
+func TestSend_ReportsRecipientState(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+	c.register("alice", "proj", "s1")
+	c.register("bob", "proj", "s2")
+
+	var res protocol.SendResult
+	c.mustCall(protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj", ToName: "bob", ToWorkspace: "proj", Body: "hi",
+	}, &res)
+	if res.RecipientState != "working" {
+		t.Fatalf("RecipientState = %q, want %q (bob just registered)", res.RecipientState, "working")
+	}
+
+	// Drain bob's inbox first -- wait returns immediately (never parking)
+	// when mail is already pending, which would make the next block a
+	// false pass rather than an actual test of the blocked state.
+	c.mustCall(protocol.MethodInbox, protocol.InboxParams{Name: "bob", Workspace: "proj", Limit: 10}, &protocol.InboxResult{})
+
+	// bob is parked in wait: blocked outranks the heartbeat-derived state.
+	bob := ts.dial()
+	waitDone := make(chan protocol.WaitResult, 1)
+	go func() {
+		var out protocol.WaitResult
+		bob.mustCall(protocol.MethodWait, protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 5000}, &out)
+		waitDone <- out
+	}()
+
+	// Give the waiter time to actually park before sending.
+	deadline := time.Now().Add(5 * time.Second)
+	for ts.srv.waiters.Count("bob@proj") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("waiter never parked")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	c.mustCall(protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj", ToName: "bob", ToWorkspace: "proj", Body: "hi again",
+	}, &res)
+	if res.RecipientState != "blocked" {
+		t.Fatalf("RecipientState = %q, want %q (bob is parked in wait)", res.RecipientState, "blocked")
+	}
+	<-waitDone
+}
+
+// TestSend_BroadcastLeavesRecipientStateEmpty proves a broadcast, which has
+// no single recipient, doesn't try to report one.
+func TestSend_BroadcastLeavesRecipientStateEmpty(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+	c.register("alice", "proj", "s1")
+	c.register("bob", "proj", "s2")
+
+	var res protocol.SendResult
+	c.mustCall(protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj", ToName: "*", ToWorkspace: "proj", Body: "hi all",
+	}, &res)
+	if res.RecipientState != "" {
+		t.Fatalf("broadcast RecipientState = %q, want empty", res.RecipientState)
+	}
 }
 
 // -- activity keeps an agent alive --------------------------------------------
