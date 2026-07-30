@@ -1127,6 +1127,29 @@ func TestOversizedBodyAtDepthCapIsRejectedNotDropped(t *testing.T) {
 	}
 }
 
+func TestPendingByWorkspace(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", Cwd: "/a"})
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "bob", Cwd: "/b"})
+
+	mustSend(t, s, Message{FromName: "alice", FromWS: "ws", ToName: "bob", ToWS: "ws", Kind: KindNote, Body: "one"})
+	mustSend(t, s, Message{FromName: "alice", FromWS: "ws", ToName: "bob", ToWS: "ws", Kind: KindNote, Body: "two"})
+	mustSend(t, s, Message{FromName: "bob", FromWS: "ws", ToName: "alice", ToWS: "ws", Kind: KindNote, Body: "three"})
+
+	got, err := s.PendingByWorkspace(ctx, "ws")
+	if err != nil {
+		t.Fatalf("PendingByWorkspace: %v", err)
+	}
+	if got["bob"] != 2 {
+		t.Errorf("pending for bob = %d, want 2", got["bob"])
+	}
+	if got["alice"] != 1 {
+		t.Errorf("pending for alice = %d, want 1", got["alice"])
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

@@ -143,6 +143,10 @@ func runSend(cmd *cobra.Command, args []string, opts *sendOptions) error {
 		return err
 	}
 
+	if res.RecipientState != "" {
+		_, err = fmt.Fprintf(out, "sent %s to %s (%s)\n", res.MessageID, address(toName, toWorkspace), res.RecipientState)
+		return err
+	}
 	_, err = fmt.Fprintf(out, "sent %s to %s\n", res.MessageID, address(toName, toWorkspace))
 	return err
 }

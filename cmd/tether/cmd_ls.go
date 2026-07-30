@@ -92,7 +92,7 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 	return next(out, fmt.Sprintf("tether send --to %s \"...\"", agentAddress(res.Agents[0])))
 }
 
-// fleetSummaryParts builds the aggregate line, e.g. ["3 agents", "1 idle"];
+// fleetSummaryParts builds the aggregate line, e.g. ["3 agents", "1 quiet"];
 // only states that occur are listed.
 func fleetSummaryParts(agents []protocol.AgentView) []string {
 	counts := map[string]int{}
@@ -101,7 +101,7 @@ func fleetSummaryParts(agents []protocol.AgentView) []string {
 	}
 
 	parts := []string{plural(len(agents), "agent", "agents")}
-	for _, state := range []string{"gone", "blocked", "working", "idle", "unknown"} {
+	for _, state := range []string{"gone", "blocked", "working", "quiet", "unknown"} {
 		if n := counts[state]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, state))
 		}

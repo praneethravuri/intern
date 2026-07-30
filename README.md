@@ -173,7 +173,7 @@ The CLI is stateless: it opens the socket, writes one JSON request, reads one JS
 | `cmd/tether` | the CLI: one `cmd_*.go` per subcommand, identity resolution, the socket client, auto-start, and the shared human-output helpers |
 | `internal/daemon` | the daemon: request dispatch, the wait registry, computed agent state, the startup lock, the background sweep |
 | `pkg/protocol` | the wire format (newline-delimited JSON request/response) and socket transport, shared by both sides |
-| `internal/store` | SQLite persistence: agents, messages, observations |
+| `internal/store` | SQLite persistence: agents, messages |
 | `internal/id` | monotonic ULID generation, used for both message ids and request ids |
 | `internal/wsname` | resolves a working directory to a workspace name from the git root |
 
@@ -217,7 +217,7 @@ Reading is destructive only through a drain: an agent that reads its mail and th
 - One agent's pending mail is capped at 500 messages. Past that, the oldest **`note`** is dropped first; `handoff`/`question`/`answer` only start dropping once every pending `note` is gone. Either way, it's oldest-first within that group — a silent agent loses its stalest context, never the message that just arrived.
 - Every drop increments a per-agent dropped counter, surfaced by `tether ls` (the `PENDING` column, as `N (+M dropped)`), `tether explain`, and `tether inbox`'s stderr warning. Degradation is visible, never silent, and the counter resets to zero the next time that agent actually drains its inbox.
 - Unacked mail nobody ever comes back for is swept and marked dead after 24 hours instead of kept forever. Read-or-dead mail older than **7 days** is then deleted outright in the same background sweep, so the database doesn't grow without bound. No `VACUUM` runs; SQLite reuses the freed space, so the file plateaus rather than shrinks.
-- `tether doctor` reports the database's file path, its size on disk, row counts for messages, agents, and observations, and the daemon log path — so "is my DB getting too big" has a direct answer.
+- `tether doctor` reports the database's file path, its size on disk, and the daemon log path — so "is my DB getting too big" has a direct answer.
 
 ### Agent state
 
@@ -226,7 +226,7 @@ Reading is destructive only through a drain: an agent that reads its mail and th
 1. **`gone`** — the registered process is no longer alive.
 2. **`blocked`** — the agent is parked in a live `tether wait` call right now.
 3. **`working`** — the agent ran some `tether` command within the last 60 seconds.
-4. **`idle`** — the agent has run a `tether` command before, just not recently.
+4. **`quiet`** — the agent has run a `tether` command before, just not recently.
 5. **`unknown`** — the agent is registered but nothing has been observed about it since.
 
 `tether explain` shows the evidence behind the state (`source`, `seen`, `detail`) as well as the state itself, so you can decide whether to trust it before sending someone work.

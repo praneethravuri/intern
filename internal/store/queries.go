@@ -5,9 +5,9 @@ package store
 
 // qSetSchemaVersion records the current schema revision. Unlike an
 // INSERT ... ON CONFLICT DO NOTHING, this must actually overwrite the value
-// on a second migration, since a database can move from v1 to v2 in place.
+// on a second migration, since a database can move from v1 to v3 in place.
 const qSetSchemaVersion = `
-INSERT INTO meta (key, value) VALUES ('schema_version', '2')
+INSERT INTO meta (key, value) VALUES ('schema_version', '3')
 ON CONFLICT(key) DO UPDATE SET value = excluded.value`
 
 const (
@@ -32,11 +32,16 @@ ON CONFLICT(workspace, name) DO UPDATE SET
 WHERE agents.last_seen < ?
    OR (excluded.session_id <> '' AND agents.session_id = excluded.session_id)`
 
-	// State is derived from observations, not stored on the agent row.
-	qHeartbeat = `UPDATE agents SET last_seen = ? WHERE workspace = ? AND name = ?`
+	// last_note only overwrites when note is non-empty, so an implicit
+	// re-register (send/inbox/wait all touch this on every call) can't
+	// silently clear a note `register --doing` just set.
+	qHeartbeat = `
+UPDATE agents SET last_seen = ?, last_kind = ?,
+    last_note = CASE WHEN ? = '' THEN last_note ELSE ? END
+WHERE workspace = ? AND name = ?`
 
 	agentCols = `workspace, name, harness, session_id, cwd, pid, pid_start,
-                 dropped, registered_at, last_seen`
+                 dropped, registered_at, last_seen, last_kind, last_note`
 
 	qGetAgent = `SELECT ` + agentCols + ` FROM agents WHERE workspace = ? AND name = ?`
 
@@ -143,37 +148,11 @@ WHERE id IN (
 )`
 
 	qIncrementDropped = `UPDATE agents SET dropped = dropped + ? WHERE workspace = ? AND name = ?`
-)
 
-const (
-	qObserve = `
-INSERT INTO observations (workspace, name, kind, detail, at)
-VALUES (?, ?, ?, ?, ?)`
-
-	// Uses idx_obs_latest for an index seek, not a scan.
-	qLastObservation = `
-SELECT kind, detail, at
-FROM observations
-WHERE workspace = ? AND name = ?
-ORDER BY id DESC
-LIMIT 1`
-
-	// One row per name (the latest) for a whole workspace, avoiding N+1.
-	qLastObservations = `
-SELECT name, kind, detail, at
-FROM (
-    SELECT name, kind, detail, at,
-           ROW_NUMBER() OVER (PARTITION BY name ORDER BY id DESC) AS rn
-    FROM observations
-    WHERE workspace = ?
-)
-WHERE rn = 1`
-
+	// One row per pending recipient in ws, avoiding N+1 in a fleet listing.
 	qPendingByWorkspace = `
 SELECT to_name, COUNT(*)
 FROM messages
 WHERE to_ws = ? AND acked_at IS NULL AND dead = 0
 GROUP BY to_name`
-
-	qSweepObservations = `DELETE FROM observations WHERE at < ?`
 )

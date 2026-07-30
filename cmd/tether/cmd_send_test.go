@@ -322,6 +322,28 @@ func TestSendPositionalTarget(t *testing.T) {
 	requireContains(t, r.stdout, "backend@storefront", "stdout")
 }
 
+// TestSendShowsRecipientStateWhenPresent proves the unicast output line
+// grows a state suffix when the daemon reports one.
+func TestSendShowsRecipientStateWhenPresent(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K", RecipientState: "blocked"}))
+
+	r := mustRun(t, newSendCmd(), "", "backend", "hi")
+	requireContains(t, r.stdout, "sent 01K to backend@storefront (blocked)", "stdout")
+}
+
+// TestSendOmitsRecipientStateWhenAbsent covers an older daemon (or a
+// broadcast) that never sets RecipientState -- the line must not grow a
+// trailing "()" or otherwise change shape.
+func TestSendOmitsRecipientStateWhenAbsent(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01K"}))
+
+	r := mustRun(t, newSendCmd(), "", "backend", "hi")
+	requireContains(t, r.stdout, "sent 01K to backend@storefront\n", "stdout")
+	requireNotContains(t, r.stdout, "(", "stdout")
+}
+
 // TestSendPositionalWithBodyFile covers the positional target combined with
 // --body-file, the shape a caller with a hostile body will actually use.
 func TestSendPositionalWithBodyFile(t *testing.T) {

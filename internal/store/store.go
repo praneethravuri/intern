@@ -148,6 +148,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.migrateV2ToV3(ctx); err != nil {
+		return err
+	}
+
 	if _, err := s.w.ExecContext(ctx, qSetSchemaVersion); err != nil {
 		return fmt.Errorf("store: record schema version: %w", err)
 	}
@@ -197,6 +201,31 @@ func (s *Store) migrateV1ToV2(ctx context.Context) error {
 
 	if _, err := s.w.ExecContext(ctx, "DROP INDEX IF EXISTS idx_thread"); err != nil {
 		return fmt.Errorf("store: drop idx_thread: %w", err)
+	}
+	return nil
+}
+
+// migrateV2ToV3 adds v3's agents columns and drops the observations table,
+// whose one live datum (last command kind) now lives on the agent row
+// itself. A no-op on a database already at v3.
+func (s *Store) migrateV2ToV3(ctx context.Context) error {
+	for _, add := range []struct{ col, ddl string }{
+		{"last_kind", "ALTER TABLE agents ADD COLUMN last_kind TEXT NOT NULL DEFAULT ''"},
+		{"last_note", "ALTER TABLE agents ADD COLUMN last_note TEXT NOT NULL DEFAULT ''"},
+	} {
+		has, err := s.hasColumn(ctx, "agents", add.col)
+		if err != nil {
+			return fmt.Errorf("store: check agents.%s: %w", add.col, err)
+		}
+		if !has {
+			if _, err := s.w.ExecContext(ctx, add.ddl); err != nil {
+				return fmt.Errorf("store: add agents.%s: %w", add.col, err)
+			}
+		}
+	}
+
+	if _, err := s.w.ExecContext(ctx, "DROP TABLE IF EXISTS observations"); err != nil {
+		return fmt.Errorf("store: drop observations: %w", err)
 	}
 	return nil
 }

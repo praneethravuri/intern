@@ -25,7 +25,7 @@ func scanAgent(sc rowScanner) (Agent, error) {
 	)
 	err := sc.Scan(
 		&a.Workspace, &a.Name, &a.Harness, &a.SessionID, &a.Cwd, &pid, &a.PIDStart,
-		&dropped, &registered, &lastSeen,
+		&dropped, &registered, &lastSeen, &a.LastKind, &a.LastNote,
 	)
 	if err != nil {
 		return Agent{}, err
@@ -76,13 +76,16 @@ func (s *Store) Register(ctx context.Context, a Agent, staleCutoff time.Time) er
 	return nil
 }
 
-// Heartbeat refreshes last_seen, then reports how many messages are waiting.
-func (s *Store) Heartbeat(ctx context.Context, ws, name string) (pending int, err error) {
+// Heartbeat refreshes last_seen and last_kind, then reports how many
+// messages are waiting. note is only applied when non-empty -- an empty note
+// leaves last_note as it was, so a caller with nothing to say about "what are
+// you doing" can't accidentally clear a previous one.
+func (s *Store) Heartbeat(ctx context.Context, ws, name, kind, note string) (pending int, err error) {
 	if ws == "" || name == "" {
 		return 0, fmt.Errorf("%w: heartbeat needs workspace and name", ErrBadAddress)
 	}
 
-	res, err := s.w.ExecContext(ctx, qHeartbeat, s.nowMS(), ws, name)
+	res, err := s.w.ExecContext(ctx, qHeartbeat, s.nowMS(), kind, note, note, ws, name)
 	if err != nil {
 		return 0, fmt.Errorf("store: heartbeat %s@%s: %w", name, ws, err)
 	}

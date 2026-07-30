@@ -140,7 +140,7 @@ func indent(s, pad string) string {
 	return strings.Join(lines, "\n")
 }
 
-// aggregate prints a summary line joined with " · ", e.g. "3 agents · 1 idle".
+// aggregate prints a summary line joined with " · ", e.g. "3 agents · 1 quiet".
 // Empty parts are dropped.
 func aggregate(w io.Writer, parts ...string) error {
 	kept := parts[:0:0]
