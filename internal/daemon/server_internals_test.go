@@ -48,22 +48,27 @@ func TestAuthenticate_StoreErrorPropagates(t *testing.T) {
 }
 
 func TestTouch_LogsObserveAndHeartbeatFailuresWithoutPropagating(t *testing.T) {
+	var mu sync.Mutex
 	var buf bytes.Buffer
-	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&buf, "", 0) })
+	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0) })
 
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	ts.srv.touch(canceled, "ws", "alice", "register", "")
 
-	if !strings.Contains(buf.String(), "touch:") {
-		t.Fatalf("touch did not log its failures: %q", buf.String())
+	mu.Lock()
+	got := buf.String()
+	mu.Unlock()
+	if !strings.Contains(got, "touch:") {
+		t.Fatalf("touch did not log its failures: %q", got)
 	}
 }
 
 func TestSweepOnce_LogsStoreFailuresWithoutPanicking(t *testing.T) {
+	var mu sync.Mutex
 	var buf bytes.Buffer
-	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&buf, "", 0) })
+	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0) })
 
 	if err := ts.store.Close(); err != nil {
 		t.Fatalf("close store: %v", err)
@@ -71,16 +76,20 @@ func TestSweepOnce_LogsStoreFailuresWithoutPanicking(t *testing.T) {
 
 	ts.srv.sweepOnce(context.Background())
 
-	if !strings.Contains(buf.String(), "failed") {
-		t.Fatalf("sweepOnce did not log the store failure: %q", buf.String())
+	mu.Lock()
+	got := buf.String()
+	mu.Unlock()
+	if !strings.Contains(got, "failed") {
+		t.Fatalf("sweepOnce did not log the store failure: %q", got)
 	}
 }
 
 func TestSweepOnce_SweepsDeadMessagesAndOldObservations(t *testing.T) {
+	var mu sync.Mutex
 	var buf bytes.Buffer
 	clk := newFakeClock()
 	ts := newTestServerWithClock(t, func(c *Config) {
-		c.Logger = log.New(&buf, "", 0)
+		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
 		c.DeadAfter = time.Minute
 	}, clk.Now)
 	ctx := context.Background()
@@ -101,7 +110,9 @@ func TestSweepOnce_SweepsDeadMessagesAndOldObservations(t *testing.T) {
 	clk.advance(2 * time.Minute)
 	ts.srv.sweepOnce(ctx)
 
+	mu.Lock()
 	got := buf.String()
+	mu.Unlock()
 	if !strings.Contains(got, "swept 1 dead message") {
 		t.Errorf("sweepOnce did not report sweeping the dead message: %q", got)
 	}
@@ -113,10 +124,11 @@ func TestSweepOnce_SweepsDeadMessagesAndOldObservations(t *testing.T) {
 // TestSweepOnce_PurgesRetiredMessages proves the sweep also deletes read/dead
 // mail past RetainMessages, separately from the 24h DeadAfter marking pass.
 func TestSweepOnce_PurgesRetiredMessages(t *testing.T) {
+	var mu sync.Mutex
 	var buf bytes.Buffer
 	clk := newFakeClock()
 	ts := newTestServerWithClock(t, func(c *Config) {
-		c.Logger = log.New(&buf, "", 0)
+		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
 		c.RetainMessages = time.Hour
 	}, clk.Now)
 	ctx := context.Background()
@@ -138,8 +150,11 @@ func TestSweepOnce_PurgesRetiredMessages(t *testing.T) {
 	clk.advance(2 * time.Hour)
 	ts.srv.sweepOnce(ctx)
 
-	if !strings.Contains(buf.String(), "purged 1 message") {
-		t.Errorf("sweepOnce did not report purging the retired message: %q", buf.String())
+	mu.Lock()
+	got := buf.String()
+	mu.Unlock()
+	if !strings.Contains(got, "purged 1 message") {
+		t.Errorf("sweepOnce did not report purging the retired message: %q", got)
 	}
 	replay, err := ts.store.Replay(ctx, "ws", "bob", 10)
 	if err != nil {
@@ -207,12 +222,13 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 }
 
 func TestSweepDeadAgents_RemovesOnlyStaleAndDeadRows(t *testing.T) {
+	var mu sync.Mutex
 	var buf bytes.Buffer
 	// sweepDeadAgents' cutoff is time.Now().Add(-DeadAfter), using the real
 	// wall clock rather than the store's overridable one, so LastSeen has to
 	// predate it by actually being written far in the past.
 	ts := newTestServerWithClock(t, func(c *Config) {
-		c.Logger = log.New(&buf, "", 0)
+		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
 		c.DeadAfter = time.Minute
 	}, func() time.Time { return time.Now().Add(-time.Hour) })
 	ctx := context.Background()
@@ -234,14 +250,18 @@ func TestSweepDeadAgents_RemovesOnlyStaleAndDeadRows(t *testing.T) {
 	if _, err := ts.store.GetAgent(ctx, "ws", "alive"); err != nil {
 		t.Errorf("live agent was swept away: %v", err)
 	}
-	if !strings.Contains(buf.String(), "swept 1 dead agent") {
-		t.Errorf("sweepDeadAgents did not report the removal: %q", buf.String())
+	mu.Lock()
+	got := buf.String()
+	mu.Unlock()
+	if !strings.Contains(got, "swept 1 dead agent") {
+		t.Errorf("sweepDeadAgents did not report the removal: %q", got)
 	}
 }
 
 func TestSweepDeadAgents_LogsListFailureWithoutPanicking(t *testing.T) {
+	var mu sync.Mutex
 	var buf bytes.Buffer
-	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&buf, "", 0) })
+	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0) })
 
 	if err := ts.store.Close(); err != nil {
 		t.Fatalf("close store: %v", err)
@@ -249,7 +269,10 @@ func TestSweepDeadAgents_LogsListFailureWithoutPanicking(t *testing.T) {
 
 	ts.srv.sweepDeadAgents(context.Background())
 
-	if !strings.Contains(buf.String(), "sweep dead agents") {
-		t.Fatalf("sweepDeadAgents did not log the list failure: %q", buf.String())
+	mu.Lock()
+	got := buf.String()
+	mu.Unlock()
+	if !strings.Contains(got, "sweep dead agents") {
+		t.Fatalf("sweepDeadAgents did not log the list failure: %q", got)
 	}
 }
