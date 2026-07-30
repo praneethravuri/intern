@@ -15,8 +15,8 @@ func agents() protocol.WhoResult {
 			Name:         "frontend",
 			Workspace:    "storefront",
 			Harness:      "claude-code",
-			State:        "idle",
-			StateSource:  "observation",
+			State:        "quiet",
+			StateSource:  "heartbeat",
 			StateDetail:  "last ran tether inbox",
 			Cwd:          "/repos/storefront/web",
 			PID:          4242,
@@ -53,7 +53,7 @@ func TestLsHappyPath(t *testing.T) {
 	out := r.stdout
 	requireContains(t, out, "2 agents", "stdout")
 	requireContains(t, out, "1 blocked", "stdout")
-	requireContains(t, out, "1 idle", "stdout")
+	requireContains(t, out, "1 quiet", "stdout")
 	requireContains(t, out, "NAME", "stdout")
 	requireContains(t, out, "HARNESS", "stdout")
 	requireContains(t, out, "STATE", "stdout")
@@ -68,14 +68,14 @@ func TestLsHappyPath(t *testing.T) {
 }
 
 // TestLsAggregateOmitsZeroCounts confirms the summary line only names states
-// that actually occur, matching "3 agents · 1 blocked · 1 idle" (no "0
+// that actually occur, matching "3 agents · 1 blocked · 1 quiet" (no "0
 // working", no "0 gone").
 func TestLsAggregateOmitsZeroCounts(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	newFakeDaemon(t, okHandler(agents()))
 
 	r := mustRun(t, newLsCmd(), "")
-	requireContains(t, r.stdout, "2 agents · 1 blocked · 1 idle", "stdout")
+	requireContains(t, r.stdout, "2 agents · 1 blocked · 1 quiet", "stdout")
 	requireNotContains(t, r.stdout, "0 working", "stdout")
 	requireNotContains(t, r.stdout, "0 gone", "stdout")
 	requireNotContains(t, r.stdout, "0 unknown", "stdout")

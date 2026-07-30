@@ -1,4 +1,4 @@
--- tether schema v2. Applied on every daemon start, every statement idempotent.
+-- tether schema v3. Applied on every daemon start, every statement idempotent.
 -- Times are Unix milliseconds (INTEGER).
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS agents (
     dropped       INTEGER NOT NULL DEFAULT 0,
     registered_at INTEGER NOT NULL,
     last_seen     INTEGER NOT NULL,
+    last_kind     TEXT    NOT NULL DEFAULT '',
+    last_note     TEXT    NOT NULL DEFAULT '',
     PRIMARY KEY (workspace, name)
 ) STRICT;
 
@@ -34,17 +36,6 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_inbox
     ON messages (to_ws, to_name, acked_at, id);
-
--- Append-only, state is computed from the latest row by the daemon.
-CREATE TABLE IF NOT EXISTS observations (
-    id        INTEGER PRIMARY KEY,
-    workspace TEXT    NOT NULL,
-    name      TEXT    NOT NULL,
-    kind      TEXT    NOT NULL,
-    detail    TEXT    NOT NULL DEFAULT '',
-    at        INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS idx_obs_latest ON observations (workspace, name, id DESC);
 
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,

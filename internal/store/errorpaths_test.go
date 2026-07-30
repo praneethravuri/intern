@@ -26,7 +26,7 @@ func TestAgentMethodsReportCanceledContext(t *testing.T) {
 	if err := s.Register(ctx, Agent{Workspace: "ws", Name: "bob", Cwd: "/b"}, s.now()); err == nil {
 		t.Error("Register with canceled context: want error, got nil")
 	}
-	if _, err := s.Heartbeat(ctx, "ws", "alice"); err == nil {
+	if _, err := s.Heartbeat(ctx, "ws", "alice", "register", ""); err == nil {
 		t.Error("Heartbeat with canceled context: want error, got nil")
 	}
 	if _, err := s.GetAgent(ctx, "ws", "alice"); err == nil {
@@ -70,29 +70,14 @@ func TestMessageMethodsReportCanceledContext(t *testing.T) {
 	}
 }
 
-func TestObservationMethodsReportCanceledContext(t *testing.T) {
+func TestPendingByWorkspaceReportsCanceledContext(t *testing.T) {
 	s := newStore(t)
 	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", Cwd: "/a"})
-	if err := s.Observe(context.Background(), Observation{Workspace: "ws", Name: "alice", Kind: "tool"}); err != nil {
-		t.Fatalf("Observe: %v", err)
-	}
 
 	ctx := canceled()
 
-	if err := s.Observe(ctx, Observation{Workspace: "ws", Name: "alice", Kind: "tool"}); err == nil {
-		t.Error("Observe with canceled context: want error, got nil")
-	}
-	if _, err := s.LastObservation(ctx, "ws", "alice"); err == nil {
-		t.Error("LastObservation with canceled context: want error, got nil")
-	}
-	if _, err := s.LastObservations(ctx, "ws"); err == nil {
-		t.Error("LastObservations with canceled context: want error, got nil")
-	}
 	if _, err := s.PendingByWorkspace(ctx, "ws"); err == nil {
 		t.Error("PendingByWorkspace with canceled context: want error, got nil")
-	}
-	if _, err := s.SweepObservations(ctx, 0); err == nil {
-		t.Error("SweepObservations with canceled context: want error, got nil")
 	}
 }
 
@@ -217,11 +202,8 @@ func TestValidationRejectsEmptyAddresses(t *testing.T) {
 	if err := s.Register(ctx, Agent{Workspace: "ws", Name: "", Cwd: "/a"}, s.now()); !errors.Is(err, ErrBadAddress) {
 		t.Errorf("Register(empty name) = %v, want ErrBadAddress", err)
 	}
-	if _, err := s.Heartbeat(ctx, "", "alice"); !errors.Is(err, ErrBadAddress) {
+	if _, err := s.Heartbeat(ctx, "", "alice", "register", ""); !errors.Is(err, ErrBadAddress) {
 		t.Errorf("Heartbeat(empty workspace) = %v, want ErrBadAddress", err)
-	}
-	if err := s.Observe(ctx, Observation{Workspace: "ws", Name: ""}); !errors.Is(err, ErrBadAddress) {
-		t.Errorf("Observe(empty name) = %v, want ErrBadAddress", err)
 	}
 }
 

@@ -46,6 +46,34 @@ func TestRegisterHappyPath(t *testing.T) {
 	requireContains(t, r.stdout, "claude-code", "stdout")
 }
 
+func TestRegisterDoingFlagSetsDoing(t *testing.T) {
+	setIdentity(t, "", "storefront")
+	clearHarnessEnv(t)
+
+	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Address: "frontend@storefront", Created: true}))
+
+	mustRun(t, newRegisterCmd(), "", "--as", "frontend", "--doing", "compiling tests, ~5min")
+
+	params := decodeParams[protocol.RegisterParams](t, d.only(t, protocol.MethodRegister))
+	if params.Doing != "compiling tests, ~5min" {
+		t.Fatalf("params.Doing = %q, want the --doing value", params.Doing)
+	}
+}
+
+func TestRegisterWithoutDoingSendsEmpty(t *testing.T) {
+	setIdentity(t, "", "storefront")
+	clearHarnessEnv(t)
+
+	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Address: "frontend@storefront", Created: true}))
+
+	mustRun(t, newRegisterCmd(), "", "--as", "frontend")
+
+	params := decodeParams[protocol.RegisterParams](t, d.only(t, protocol.MethodRegister))
+	if params.Doing != "" {
+		t.Fatalf("params.Doing = %q, want empty when --doing is not given", params.Doing)
+	}
+}
+
 func TestRegisterUsesTheNameFromTheEnvironment(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	clearHarnessEnv(t)

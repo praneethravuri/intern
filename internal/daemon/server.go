@@ -264,9 +264,9 @@ func (s *Server) awaitConns() {
 	}
 }
 
-// sweepLoop retires unacked mail, old observations, and dead agent rows that
-// nobody ever came back for. It sweeps once immediately, before the first
-// tick, so a daemon that restarts often still prunes something.
+// sweepLoop retires unacked mail and dead agent rows that nobody ever came
+// back for. It sweeps once immediately, before the first tick, so a daemon
+// that restarts often still prunes something.
 func (s *Server) sweepLoop(ctx context.Context) {
 	s.sweepOnce(ctx)
 
@@ -298,14 +298,6 @@ func (s *Server) sweepOnce(ctx context.Context) {
 		}
 	} else if n > 0 {
 		s.log.Printf("purged %d message(s)", n)
-	}
-
-	if n, err := s.store.SweepObservations(ctx, s.cfg.DeadAfter); err != nil {
-		if ctx.Err() == nil {
-			s.log.Printf("sweep observations failed: %v", err)
-		}
-	} else if n > 0 {
-		s.log.Printf("swept %d observation(s)", n)
 	}
 
 	s.sweepDeadAgents(ctx)
@@ -587,7 +579,7 @@ func (s *Server) handleRegister(ctx context.Context, req protocol.Request, peerP
 		}
 	}
 
-	s.touch(ctx, ws, name, "register", harness)
+	s.touch(ctx, ws, name, "register", p.Doing)
 	s.log.Printf("registered %s (harness=%s pid=%d created=%v renamed=%v)",
 		a.Address(), harness, sessionPID, created, renamed)
 	return protocol.OK(req.ID, protocol.RegisterResult{
@@ -710,16 +702,12 @@ func (s *Server) authenticate(ctx context.Context, ws, name, session string) err
 // addr renders the canonical "name@workspace" form from separate strings.
 func addr(name, ws string) string { return name + "@" + ws }
 
-// touch records an observation and refreshes last_seen; errors are logged,
-// not propagated, since the handler's real work already succeeded.
-func (s *Server) touch(ctx context.Context, ws, name, kind, detail string) {
-	if err := s.store.Observe(ctx, store.Observation{
-		Workspace: ws, Name: name, Kind: kind, Detail: detail,
-	}); err != nil {
-		s.log.Printf("touch: observe %s@%s: %v", name, ws, err)
-	}
-	if _, err := s.store.Heartbeat(ctx, ws, name); err != nil {
-		s.log.Printf("touch: refresh last_seen %s@%s: %v", name, ws, err)
+// touch refreshes last_seen and last_kind, and last_note when note is
+// non-empty; errors are logged, not propagated, since the handler's real
+// work already succeeded.
+func (s *Server) touch(ctx context.Context, ws, name, kind, note string) {
+	if _, err := s.store.Heartbeat(ctx, ws, name, kind, note); err != nil {
+		s.log.Printf("touch: heartbeat %s@%s: %v", name, ws, err)
 	}
 }
 
@@ -771,6 +759,11 @@ func (s *Server) handleSend(ctx context.Context, req protocol.Request) protocol.
 		return s.fail(req.ID, err, "send")
 	}
 
+	// Snapshot before sendOne, not after: sendOne's Notify releases a parked
+	// wait as a side effect, and blocked is the single most useful state to
+	// report -- computed after delivery, it would never be reachable.
+	recipientState := s.recipientState(ctx, toWS, toName)
+
 	id, err := s.sendOne(ctx, fromName, fromWS, toName, toWS, kind, p.Body, replyTo)
 	if err != nil {
 		if errors.Is(err, store.ErrNoSuchAgent) {
@@ -779,9 +772,21 @@ func (s *Server) handleSend(ctx context.Context, req protocol.Request) protocol.
 		return s.fail(req.ID, err, "send")
 	}
 
-	s.touch(ctx, fromWS, fromName, "send", addr(toName, toWS))
+	s.touch(ctx, fromWS, fromName, "send", "")
 	s.log.Printf("send %s -> %s (%s, id=%s)", addr(fromName, fromWS), addr(toName, toWS), kind, id)
-	return protocol.OK(req.ID, protocol.SendResult{MessageID: id})
+	return protocol.OK(req.ID, protocol.SendResult{MessageID: id, RecipientState: recipientState})
+}
+
+// recipientState reports the recipient's computed state. A lookup failure
+// (e.g. the recipient doesn't exist, which sendOne is about to reject too)
+// just degrades to an empty state rather than failing the send.
+func (s *Server) recipientState(ctx context.Context, ws, name string) string {
+	a, err := s.store.GetAgent(ctx, ws, name)
+	if err != nil {
+		return ""
+	}
+	blocked := s.waiters.Count(a.Address()) > 0
+	return computeState(a, blocked, time.Now()).State
 }
 
 // sendOne delivers one message and wakes any waiter parked on the recipient;
@@ -824,7 +829,7 @@ func (s *Server) handleBroadcastSend(ctx context.Context, req protocol.Request, 
 		addrs = append(addrs, addr(a.Name, toWS))
 	}
 
-	s.touch(ctx, fromWS, fromName, "send", addr(broadcastStar, toWS))
+	s.touch(ctx, fromWS, fromName, "send", "")
 	s.log.Printf("broadcast send %s@%s -> */%s (%s, delivered=%d)", fromName, fromWS, toWS, kind, len(addrs))
 	return protocol.OK(req.ID, protocol.SendResult{Recipients: addrs, Delivered: len(addrs)})
 }
@@ -972,7 +977,7 @@ func (s *Server) handleLs(ctx context.Context, req protocol.Request) protocol.Re
 		return s.fail(req.ID, err, "who")
 	}
 
-	obs, pending, err := s.fleetSignals(ctx, agents)
+	pending, err := s.fleetPending(ctx, agents)
 	if err != nil {
 		return s.fail(req.ID, err, "who")
 	}
@@ -980,18 +985,16 @@ func (s *Server) handleLs(ctx context.Context, req protocol.Request) protocol.Re
 	now := time.Now()
 	views := make([]protocol.AgentView, 0, len(agents))
 	for _, a := range agents {
-		addr := a.Address()
-		blocked := s.waiters.Count(addr) > 0
-		sr := computeState(a, obs[addr], blocked, now)
-		views = append(views, agentView(a, sr, pending[addr]))
+		blocked := s.waiters.Count(a.Address()) > 0
+		sr := computeState(a, blocked, now)
+		views = append(views, agentView(a, sr, pending[a.Address()]))
 	}
 	return protocol.OK(req.ID, protocol.WhoResult{Agents: views})
 }
 
-// fleetSignals gathers the latest observation and pending count for agents,
-// one query pair per distinct workspace, keyed by full address.
-func (s *Server) fleetSignals(ctx context.Context, agents []store.Agent) (map[string]store.Observation, map[string]int, error) {
-	obs := make(map[string]store.Observation, len(agents))
+// fleetPending gathers pending mail counts for agents, one query per
+// distinct workspace, keyed by full address.
+func (s *Server) fleetPending(ctx context.Context, agents []store.Agent) (map[string]int, error) {
 	pending := make(map[string]int, len(agents))
 
 	seen := make(map[string]bool)
@@ -1001,23 +1004,15 @@ func (s *Server) fleetSignals(ctx context.Context, agents []store.Agent) (map[st
 		}
 		seen[a.Workspace] = true
 
-		wsObs, err := s.store.LastObservations(ctx, a.Workspace)
-		if err != nil {
-			return nil, nil, err
-		}
-		for name, o := range wsObs {
-			obs[addr(name, a.Workspace)] = o
-		}
-
 		wsPending, err := s.store.PendingByWorkspace(ctx, a.Workspace)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		for name, n := range wsPending {
 			pending[addr(name, a.Workspace)] = n
 		}
 	}
-	return obs, pending, nil
+	return pending, nil
 }
 
 func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protocol.Response {
@@ -1038,12 +1033,8 @@ func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protoc
 	if err != nil {
 		return s.fail(req.ID, err, "status")
 	}
-	last, err := s.store.LastObservation(ctx, ws, name)
-	if err != nil {
-		return s.fail(req.ID, err, "status")
-	}
 	blocked := s.waiters.Count(a.Address()) > 0
-	sr := computeState(a, last, blocked, time.Now())
+	sr := computeState(a, blocked, time.Now())
 	return protocol.OK(req.ID, protocol.StatusResult{Agent: agentView(a, sr, pending)})
 }
 

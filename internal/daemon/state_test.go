@@ -25,57 +25,62 @@ func TestComputeState_PriorityOrder(t *testing.T) {
 		t.Skipf("StartTime unsupported in this environment: %v", startErr)
 	}
 
-	recentObs := store.Observation{Kind: "send", At: now.Add(-5 * time.Second)}
-	staleObs := store.Observation{Kind: "inbox", At: now.Add(-5 * time.Minute)}
-
 	tests := []struct {
 		name    string
 		agent   store.Agent
-		last    store.Observation
 		blocked bool
 		want    string
 	}{
 		{
-			name: "dead pid beats a blocked wait and a recent observation",
+			name: "dead pid beats a blocked wait and recent activity",
 			agent: store.Agent{
 				PID: implausiblePIDForState, PIDStart: 0, LastSeen: now.Add(-time.Second),
+				LastKind: "send",
 			},
-			last:    recentObs,
 			blocked: true,
 			want:    "gone",
 		},
 		{
-			name:    "recycled pid (wrong start time) reads as gone, not idle",
-			agent:   store.Agent{PID: livePID, PIDStart: liveStart + 1},
-			last:    staleObs,
+			name: "recycled pid (wrong start time) reads as gone, not quiet",
+			agent: store.Agent{
+				PID: livePID, PIDStart: liveStart + 1,
+				LastKind: "inbox", LastSeen: now.Add(-5 * time.Minute),
+			},
 			blocked: false,
 			want:    "gone",
 		},
 		{
-			name:    "blocked wait beats a stale observation",
-			agent:   store.Agent{PID: livePID, PIDStart: liveStart},
-			last:    staleObs,
+			name: "blocked wait beats stale activity",
+			agent: store.Agent{
+				PID: livePID, PIDStart: liveStart,
+				LastKind: "inbox", LastSeen: now.Add(-5 * time.Minute),
+			},
 			blocked: true,
 			want:    "blocked",
 		},
 		{
-			name:    "recent observation reads as working",
-			agent:   store.Agent{PID: livePID, PIDStart: liveStart},
-			last:    recentObs,
+			name: "recent activity reads as working",
+			agent: store.Agent{
+				PID: livePID, PIDStart: liveStart,
+				LastKind: "send", LastSeen: now.Add(-5 * time.Second),
+			},
 			blocked: false,
 			want:    "working",
 		},
 		{
-			name:    "old observation reads as idle",
-			agent:   store.Agent{PID: livePID, PIDStart: liveStart},
-			last:    staleObs,
+			name: "old activity reads as quiet",
+			agent: store.Agent{
+				PID: livePID, PIDStart: liveStart,
+				LastKind: "inbox", LastSeen: now.Add(-5 * time.Minute),
+			},
 			blocked: false,
-			want:    "idle",
+			want:    "quiet",
 		},
 		{
-			name:    "no observation ever reads as unknown",
-			agent:   store.Agent{PID: livePID, PIDStart: liveStart, RegisteredAt: now.Add(-time.Hour)},
-			last:    store.Observation{},
+			name: "nothing ever recorded reads as unknown",
+			agent: store.Agent{
+				PID: livePID, PIDStart: liveStart, RegisteredAt: now.Add(-time.Hour),
+			},
 			blocked: false,
 			want:    "unknown",
 		},
@@ -83,7 +88,7 @@ func TestComputeState_PriorityOrder(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := computeState(tc.agent, tc.last, tc.blocked, now)
+			got := computeState(tc.agent, tc.blocked, now)
 			if got.State != tc.want {
 				t.Fatalf("computeState = %+v, want State %q", got, tc.want)
 			}
@@ -96,28 +101,49 @@ func TestComputeState_PriorityOrder(t *testing.T) {
 func TestComputeState_SourcesAndDetail(t *testing.T) {
 	now := time.Now()
 
-	gone := computeState(store.Agent{PID: implausiblePIDForState}, store.Observation{}, false, now)
+	gone := computeState(store.Agent{PID: implausiblePIDForState}, false, now)
 	if gone.Source != "pid" {
 		t.Fatalf("gone.Source = %q, want pid", gone.Source)
 	}
 
-	blocked := computeState(store.Agent{}, store.Observation{}, true, now)
+	blocked := computeState(store.Agent{}, true, now)
 	if blocked.Source != "wait" || blocked.Age != 0 {
 		t.Fatalf("blocked = %+v, want source=wait age=0", blocked)
 	}
 
-	working := computeState(store.Agent{}, store.Observation{Kind: "send", At: now.Add(-time.Second)}, false, now)
-	if working.Source != "observation" || working.Detail != "ran tether send" {
+	working := computeState(store.Agent{LastKind: "send", LastSeen: now.Add(-time.Second)}, false, now)
+	if working.Source != "heartbeat" || working.Detail != "ran tether send" {
 		t.Fatalf("working = %+v", working)
 	}
 
-	idle := computeState(store.Agent{}, store.Observation{Kind: "inbox", At: now.Add(-5 * time.Minute)}, false, now)
-	if idle.Source != "observation" || idle.Detail != "last ran tether inbox" {
-		t.Fatalf("idle = %+v", idle)
+	quiet := computeState(store.Agent{LastKind: "inbox", LastSeen: now.Add(-5 * time.Minute)}, false, now)
+	if quiet.Source != "heartbeat" || quiet.Detail != "last ran tether inbox" {
+		t.Fatalf("quiet = %+v", quiet)
 	}
 
-	unknown := computeState(store.Agent{RegisteredAt: now.Add(-time.Hour)}, store.Observation{}, false, now)
+	unknown := computeState(store.Agent{RegisteredAt: now.Add(-time.Hour)}, false, now)
 	if unknown.Source != "registration" {
 		t.Fatalf("unknown.Source = %q, want registration", unknown.Source)
+	}
+}
+
+// TestComputeState_LastNoteOverridesDetail proves a `register --doing` note
+// takes over the generic "ran tether X" line once it's set, in both the
+// working and quiet branches.
+func TestComputeState_LastNoteOverridesDetail(t *testing.T) {
+	now := time.Now()
+
+	working := computeState(store.Agent{
+		LastKind: "send", LastSeen: now.Add(-time.Second), LastNote: "compiling tests",
+	}, false, now)
+	if working.Detail != "compiling tests" {
+		t.Fatalf("working.Detail = %q, want the note", working.Detail)
+	}
+
+	quiet := computeState(store.Agent{
+		LastKind: "inbox", LastSeen: now.Add(-5 * time.Minute), LastNote: "compiling tests",
+	}, false, now)
+	if quiet.Detail != "compiling tests" {
+		t.Fatalf("quiet.Detail = %q, want the note", quiet.Detail)
 	}
 }
