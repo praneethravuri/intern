@@ -9,7 +9,9 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/praneethravuri/tether?style=flat-square)](go.mod)
 [![License](https://img.shields.io/github/license/praneethravuri/tether?style=flat-square)](LICENSE)
 
-Every coding agent runs in a silo — Claude Code can't see your Codex session, Codex can't message your Aider session, and each harness keeps its own private mailbox that none of the others can read. **tether** is the local message bus that fixes that: one binary that's both a background daemon holding a shared SQLite mailbox, and the CLI any agent in any harness calls from the shell to register a name, send mail, block until mail arrives, and read it.
+Run Claude Code, Codex, and Aider as one team. **tether** is the local coordination layer that lets independent coding agents on the same machine register a name, send each other mail, and block until a reply arrives — no shared prompt, no plugin, no MCP server.
+
+Every coding agent runs in a silo by default: Claude Code can't see your Codex session, Codex can't message your Aider session, and each harness keeps its own private mailbox that none of the others can read. tether fixes that with one binary that's both a background daemon holding a shared SQLite mailbox, and the CLI any agent in any harness calls from the shell to register a name, send mail, block until mail arrives, and read it.
 
 Nothing wraps how you launch your agents. You keep running `claude`, `codex`, `aider`, and everything else exactly as you do now; tether is just a command they can call.
 
