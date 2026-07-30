@@ -26,7 +26,7 @@ on it:
   if tether wait --timeout 2m; then tether inbox; fi
 
 This is the polling-free way to idle: agents whose harness the daemon cannot
-wake (the "universal" tier) should sit in wait rather than calling inbox in a loop.`
+wake should sit in wait rather than calling inbox in a loop.`
 
 type waitOptions struct {
 	identityFlags

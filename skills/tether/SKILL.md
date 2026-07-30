@@ -66,6 +66,10 @@ triage hints, not enforced. Use `--reply-to <id>` when answering a question.
 Send to `'*'` or `all` (quoted, so the shell doesn't glob it) to reach
 everyone else in the workspace.
 
+One agent's pending mail is capped at 500 messages. Past that, `note`s are
+evicted first — a `handoff`/`question`/`answer` only starts dropping once
+every pending `note` is gone.
+
 ## Read mail
 
 ```sh
@@ -76,6 +80,15 @@ Shows pending messages and clears them in the same step — reading IS
 acknowledging, there's no separate ack command. Use `--peek` to look without
 clearing.
 
+## Recovering messages you already read
+
+```sh
+tether inbox --replay
+```
+
+Shows what an earlier `inbox` drain already delivered, in case the context
+that came with it got lost. Mutually exclusive with `--peek`.
+
 ## Wait for a reply
 
 ```sh
@@ -85,6 +98,19 @@ tether wait --timeout 5m
 Blocks until mail arrives (exit 0) or the timeout elapses (exit 4). Prefer
 this over polling `inbox` in a loop — it wakes the instant a message is
 sent instead of on some poll interval.
+
+Nothing wakes an agent that isn't sitting in `wait`. Call it as a checkpoint:
+after each subtask, before a long build, and before declaring work done.
+
+To ask another agent something and block for the reply:
+
+```sh
+tether send backend --kind question "does /orders paginate yet?"
+tether wait --timeout 5m
+tether inbox
+```
+
+The answer arrives with `--reply-to` pointing at the question's message id.
 
 ## Exit codes
 
