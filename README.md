@@ -15,6 +15,8 @@ Nothing wraps how you launch your agents — keep running `claude`, `codex`, `ai
 
 ## Table of Contents
 
+- [Why Tether](#why-tether)
+- [Comparison](#comparison)
 - [Install](#install)
   - [CLI](#cli)
   - [Skill](#skill)
@@ -22,10 +24,31 @@ Nothing wraps how you launch your agents — keep running `claude`, `codex`, `ai
 - [CLI Reference](#cli-reference)
 - [Flags](#flags)
 - [Exit codes](#exit-codes)
+- [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
 - [Configuration](#configuration)
 - [Development](#development)
 - [License](#license)
+
+## Why Tether
+
+- **Frontend/backend handoff.** One agent changes an API's response shape, sends the other a `handoff`, and blocks on `wait` until the other confirms — instead of finding out days later from a broken build.
+- **Code review.** A reviewer agent asks questions about a change instead of editing it directly; the author replies inline and keeps working.
+- **Docs that don't drift.** A docs agent wakes on a `handoff` the moment an implementation change lands, instead of someone remembering to update the docs later.
+- **Release coordination.** A release agent waits for every other agent's "done" before announcing, so nothing ships half-finished.
+
+Every scenario above is the same four commands — `register`, `send`, `wait`, `inbox` — pointed at a different problem.
+
+## Comparison
+
+| Approach | What it costs | What it's missing |
+| --- | --- | --- |
+| **tether** | One binary, one line in `AGENTS.md`/`CLAUDE.md`, no config, no restart | Local-only — no distributed or cross-machine mode |
+| **Shared prompt / one big context window** | Nothing to install | No isolation, no parallelism — one window bloats with every agent's work |
+| **File-based mailbox** (`inbox/*.json`) | Zero dependencies, git-versioned | No blocking primitive — an agent has to poll, and concurrent writers need their own locking |
+| **MCP server** | Four tool schemas at ~700-1,000 tokens each, ~3-4k tokens/session whether used or not, plus a per-harness `.mcp.json` entry | Still needs a shared broker underneath for agent-to-agent delivery — MCP replaces the front door, not the daemon |
+
+tether is CLI-only on principle, not just preference: in an external benchmark of agentic tool use, a plain CLI (`gh`) scored 86%, while a version applying stricter output-design discipline (`gh-axi`) scored 100% — at a third of the cost. Both were CLIs; the 14-point gap was entirely design discipline. Being a CLI instead of an MCP server is necessary, not sufficient, but it's the foundation everything else here is built on.
 
 ## Install
 
@@ -100,6 +123,8 @@ Every command accepts `--json`, `--as <name>`, and `--workspace <name>`, and aut
 | `tether doctor` | Diagnoses the daemon, resolved workspace, detected harness, database health, and every agent. Never auto-starts. |
 | `tether version` | Prints the version. |
 
+`ls`/`explain` compute a state fresh on every call, never stored, in priority order: `gone` (pid no longer alive) → `blocked` (parked in a live `wait`) → `working` (ran a command in the last 60s) → `quiet` (ran one, just not recently) → `unknown` (registered, nothing observed yet). `register --doing "compiling tests, ~5min"` sets a note that `explain` shows in place of the generic evidence string, for anything that runs long enough to otherwise read as quiet.
+
 ## Flags
 
 | Command | Flag | Description |
@@ -113,6 +138,7 @@ Every command accepts `--json`, `--as <name>`, and `--workspace <name>`, and aut
 | `inbox` | `--full` | show every message body in full, skipping truncation |
 | `wait` | `--timeout <duration>` | how long to block (default `60s`, max `24h`) |
 | `ls` | `--all` | list agents in every workspace, not just this one |
+| `register` | `--doing <text>` | what you're doing right now, shown by `explain` |
 
 `--as`, `--workspace`, and `--json` apply to every command as described under [CLI Reference](#cli-reference) and are omitted from this table.
 
@@ -131,6 +157,16 @@ Exit codes are part of the contract — a script or an agent branches on these, 
 | `3` | no daemon | the daemon could not be reached, including after an auto-start attempt |
 | `4` | timeout / not found | `tether wait` returned with no mail, or `tether send` addressed an agent that does not exist ("nobody was there" either way) |
 | `5` | conflict | the request collided with existing state — almost always a name already held by a live agent |
+
+## Troubleshooting
+
+**`tether: no daemon` (exit 3).** The daemon isn't running and auto-start failed, or you ran `doctor`, which never auto-starts. Run `tether doctor` — it reports the socket path, whether the daemon answers, and the daemon log path (`~/.tether/daemon.log`) so you can see why it didn't come up.
+
+**`wait`/`send` times out (exit 4).** Either nobody answered in time, or `send` addressed an agent that isn't registered. Run `tether ls` to see who's actually here, and `tether explain <name>` to see one agent's computed state and the evidence behind it.
+
+**Name conflict (exit 5).** Someone else already holds that name as a live agent. `register`'s error message suggests a free alternative (`frontend` → `frontend-2`).
+
+**Database growing large.** `tether doctor` reports the database's file path and size. Read-or-dead mail is deleted outright after 7 days — nothing to clean up by hand.
 
 ## How it works
 
@@ -164,7 +200,7 @@ The CLI is stateless: it opens the socket, writes one JSON request, reads one JS
 | `TETHER_WORKSPACE` | Overrides workspace detection entirely (otherwise the basename of the git root of the current directory). |
 | `TETHER_SESSION_ID` | Overrides the session id used to authenticate "acting as `--as X`" claims. Only needed if your harness is not one `tether` recognises; most callers never set this — an unrecognised harness still gets a stable, per-shell synthetic session id automatically. |
 
-The socket is created mode 0600 inside a 0700 directory, so only your user can reach the bus.
+The socket is created mode 0600 inside a 0700 directory, so only your user can reach the bus. See [SECURITY.md](SECURITY.md) for the full threat model.
 
 ## Development
 
