@@ -11,8 +11,8 @@ import (
 
 const explainLong = `Explain one agent's computed state and how much mail is waiting for it.
 
-With no argument this reports on you (--as, or $TETHER_NAME). Pass an address to
-inspect somebody else before sending them work.
+With no argument this reports on you (--as, or whatever this session already
+registered). Pass an address to inspect somebody else before sending them work.
 
 state/source/seen/detail are computed fresh on every call, never stored: seen
 is how old the evidence behind state is, and detail says what that evidence
