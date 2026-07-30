@@ -46,8 +46,8 @@ func TestLsHappyPath(t *testing.T) {
 	r := mustRun(t, newLsCmd(), "")
 
 	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
-	if params.Workspace != "storefront" || params.All {
-		t.Fatalf("params = %+v, want workspace storefront and all=false", params)
+	if params.Workspace != "storefront" {
+		t.Fatalf("params = %+v, want workspace storefront", params)
 	}
 
 	out := r.stdout
@@ -136,9 +136,11 @@ func TestLsAll(t *testing.T) {
 
 	mustRun(t, newLsCmd(), "", "--all")
 
+	// --all skips workspace resolution entirely, so the daemon sees every
+	// workspace rather than being told to filter by one.
 	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
-	if !params.All {
-		t.Fatal("all = false, want true")
+	if params.Workspace != "" {
+		t.Fatalf("workspace = %q, want empty", params.Workspace)
 	}
 }
 

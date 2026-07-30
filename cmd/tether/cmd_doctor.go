@@ -32,19 +32,10 @@ type doctorReport struct {
 	SessionID     string               `json:"session_id,omitempty"`
 	DBPath        string               `json:"db_path,omitempty"`
 	DBSizeBytes   int64                `json:"db_size_bytes,omitempty"`
-	DBRows        *doctorDBRows        `json:"db_rows,omitempty"`
 	Agents        []protocol.AgentView `json:"agents"`
 	DaemonLogPath string               `json:"daemon_log_path,omitempty"`
 	Warnings      []string             `json:"warnings"`
 	Error         string               `json:"error,omitempty"`
-}
-
-// doctorDBRows is only populated when the daemon answered (row counts
-// require its help; the path and size above don't).
-type doctorDBRows struct {
-	Messages     int `json:"messages"`
-	Agents       int `json:"agents"`
-	Observations int `json:"observations"`
 }
 
 func newDoctorCmd() *cobra.Command {
@@ -138,13 +129,6 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 		if who.Agents != nil {
 			report.Agents = who.Agents
 		}
-
-		var stats protocol.StatsResult
-		if err := doCall(protocol.MethodStats, nil, &stats, defaultCallTimeout, false); err == nil {
-			report.DBRows = &doctorDBRows{
-				Messages: stats.Messages, Agents: stats.Agents, Observations: stats.Observations,
-			}
-		}
 	default:
 		var ee *exitError
 		if errors.As(err, &ee) && ee.code == exitNoDaemon {
@@ -196,12 +180,6 @@ func writeDoctorReport(cmd *cobra.Command, r doctorReport) error {
 	}
 	if r.DBPath != "" {
 		pairs = append(pairs, [2]string{"database", fmt.Sprintf("%s (%s)", r.DBPath, humanBytes(r.DBSizeBytes))})
-	}
-	if r.DBRows != nil {
-		pairs = append(pairs, [2]string{"db rows", fmt.Sprintf("%s · %s · %s",
-			plural(r.DBRows.Messages, "message", "messages"),
-			plural(r.DBRows.Agents, "agent", "agents"),
-			plural(r.DBRows.Observations, "observation", "observations"))})
 	}
 	if r.DaemonLogPath != "" {
 		pairs = append(pairs, [2]string{"daemon log", r.DaemonLogPath})

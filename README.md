@@ -60,13 +60,6 @@ make build          # produces ./tether, version stamped from git
 # https://github.com/praneethravuri/tether/releases/latest
 ```
 
-With Docker. The image entrypoint is `tether`, which with no arguments starts the daemon in the foreground, so the socket and database need to live on a mounted volume for anything outside the container to reach them:
-
-```sh
-docker build -t tether .
-docker run --rm -v "$HOME/.tether:/home/nonroot/.tether" tether
-```
-
 </details>
 
 ### Skill

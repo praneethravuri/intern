@@ -492,8 +492,6 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 		return s.handleLs(ctx, req)
 	case protocol.MethodExplain:
 		return s.handleExplain(ctx, req)
-	case protocol.MethodStats:
-		return s.handleStats(ctx, req)
 	default:
 		return protocol.Fail(req.ID, protocol.CodeBadRequest, "unknown method: "+clip(req.Method))
 	}
@@ -1047,19 +1045,6 @@ func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protoc
 	blocked := s.waiters.Count(a.Address()) > 0
 	sr := computeState(a, last, blocked, time.Now())
 	return protocol.OK(req.ID, protocol.StatusResult{Agent: agentView(a, sr, pending)})
-}
-
-// handleStats reports row counts for doctor's database health line.
-func (s *Server) handleStats(ctx context.Context, req protocol.Request) protocol.Response {
-	st, err := s.store.Stats(ctx)
-	if err != nil {
-		return s.fail(req.ID, err, "stats")
-	}
-	return protocol.OK(req.ID, protocol.StatsResult{
-		Messages:     st.Messages,
-		Agents:       st.Agents,
-		Observations: st.Observations,
-	})
 }
 
 // -- errors -----------------------------------------------------------------
