@@ -4,7 +4,7 @@
 #   curl -fsSL https://praneethravuri.github.io/tether/install.sh | sh
 #
 # Env overrides:
-#   TETHER_VERSION      version tag to install, e.g. v0.1.0 (default: latest)
+#   TETHER_VERSION      version tag to install, e.g. v0.2.0 (default: latest)
 #   TETHER_INSTALL_DIR  where to put the binaries (default: ~/.local/bin)
 #   TETHER_BASE_URL     override the GitHub releases base URL (testing only)
 set -e
