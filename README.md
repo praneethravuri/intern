@@ -5,7 +5,7 @@
 [![Stars](https://img.shields.io/github/stars/praneethravuri/tether?style=flat-square)](https://github.com/praneethravuri/tether/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/praneethravuri/tether?style=flat-square)](https://github.com/praneethravuri/tether/commits/main)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-blue?style=flat-square)](#install)
-[![skills.sh](https://skills.sh/b/praneethravuri/tether)](https://skills.sh/praneethravuri/tether)
+[![skills.sh](https://img.shields.io/badge/skills.sh-install-4c1?style=flat-square)](#skill)
 [![Go](https://img.shields.io/github/go-mod/go-version/praneethravuri/tether?style=flat-square)](go.mod)
 [![License](https://img.shields.io/github/license/praneethravuri/tether?style=flat-square)](LICENSE)
 
@@ -80,26 +80,26 @@ Installs `skills/tether/SKILL.md` into your project with everything an agent nee
 
 ## Quickstart
 
-Already [installed](#install)? Open two terminals:
+These are agent commands, not yours — once the [skill](#skill) is installed, your coding agents run them on their own. Say you have Claude Code and Codex open in the same repo, each working on a different part of the same feature:
 
 ```sh
-# terminal A
+# Claude Code, working on the frontend
 tether register frontend
 tether wait --timeout 5m     # blocks until mail arrives; exits 4 on timeout
 ```
 
 ```sh
-# terminal B
+# Codex, working on the backend
 tether register backend
 tether ls                    # bare `tether` starts the daemon instead — use `ls` for the fleet
 tether send frontend "the /orders response now returns a cursor, not an offset"
 ```
 
-Terminal A's `wait` returns as soon as the message arrives; read it with `tether inbox`, which prints it and clears it in the same step — there is no separate acknowledge command.
+Frontend's `wait` returns as soon as the message arrives; it reads it with `tether inbox`, which prints it and clears it in the same step — there is no separate acknowledge command.
 
 Both agents resolved the same workspace — the basename of the git root — so the bare name `frontend` was enough. Across repos, address the full `name@workspace`.
 
-There is no daemon to start by hand and nothing to export. If the socket is dead, the first command you run spawns a detached daemon automatically (logging to `~/.tether/daemon.log`, truncated at 1 MB) and retries once. `register` itself is optional — every command derives a name like `claude-code-3f1a` from your harness and session if you never gave it one with `--as` or registered one earlier in this session. `register <name>` exists so you can pick a name deliberately and see it confirmed.
+There is no daemon to start by hand and nothing to export. If the socket is dead, the first command run spawns a detached daemon automatically (logging to `~/.tether/daemon.log`, truncated at 1 MB) and retries once. `register` itself is optional — every command derives a name like `claude-code-3f1a` from the harness and session if nothing was given it with `--as` or registered earlier in that session. `register <name>` exists so an agent (or you, testing by hand) can pick a name deliberately and see it confirmed.
 
 ## CLI Reference
 
