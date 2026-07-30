@@ -131,12 +131,14 @@ DELETE FROM messages
 WHERE (dead = 1 OR acked_at IS NOT NULL) AND created_at < ?`
 
 	// Subquery, not ORDER BY/LIMIT on UPDATE: modernc.org/sqlite rejects that directly.
+	// Notes are evicted before anything else -- a handoff/question/answer only
+	// goes once every pending note is gone, regardless of age.
 	qDropOldest = `
 UPDATE messages SET dead = 1
 WHERE id IN (
     SELECT id FROM messages
     WHERE to_ws = ? AND to_name = ? AND acked_at IS NULL AND dead = 0
-    ORDER BY id
+    ORDER BY kind = 'note' DESC, id
     LIMIT ?
 )`
 
