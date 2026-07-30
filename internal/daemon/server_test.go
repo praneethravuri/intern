@@ -80,6 +80,17 @@ func newTestServer(t *testing.T, tweak func(*Config)) *testServer {
 // goroutine exists, avoids the race entirely.
 func newTestServerWithClock(t *testing.T, tweak func(*Config), now func() time.Time) *testServer {
 	t.Helper()
+	return newTestServerFull(t, tweak, now, nil)
+}
+
+// newTestServerFull is newTestServerWithClock, additionally running seed
+// against the store before Serve starts. A test that needs data to exist
+// before the startup sweep can observe it (sweepLoop's first sweep runs the
+// instant the background goroutine starts) has no other race-free way to
+// seed it -- inserting after construction races the same way store.Now
+// assignment used to.
+func newTestServerFull(t *testing.T, tweak func(*Config), now func() time.Time, seed func(*store.Store)) *testServer {
+	t.Helper()
 
 	dir := shortTempDir(t)
 	st, err := store.Open(context.Background(), filepath.Join(dir, "t.db"))
@@ -88,6 +99,9 @@ func newTestServerWithClock(t *testing.T, tweak func(*Config), now func() time.T
 	}
 	if now != nil {
 		st.Now = now
+	}
+	if seed != nil {
+		seed(st)
 	}
 
 	cfg := DefaultConfig()
