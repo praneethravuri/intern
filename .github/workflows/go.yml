@@ -157,12 +157,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Proves pure-Go SQLite builds both binaries for every target with no C toolchain.
-      - name: Build both binaries
+      # Proves pure-Go SQLite builds for every target with no C toolchain.
+      - name: Build the binary
         env:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: |
-          go build -trimpath -ldflags "-s -w" -o /tmp/tether  ./cmd/tether
-          go build -trimpath -ldflags "-s -w" -o /tmp/tetherd ./cmd/tetherd
+        run: go build -trimpath -ldflags "-s -w" -o /tmp/tether ./cmd/tether
