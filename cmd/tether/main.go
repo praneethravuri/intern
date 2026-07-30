@@ -134,7 +134,7 @@ Typical session:
 
   tether register --as frontend     # claim a name in this workspace
   tether ls                         # see who else is here
-  tether send --to backend "..."    # send a message
+  tether send backend "..."         # send a message
   tether wait --timeout 60s         # block until mail arrives
   tether inbox                      # read it -- this also clears it
   tether inbox --peek               # look without clearing
