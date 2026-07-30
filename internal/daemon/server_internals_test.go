@@ -155,28 +155,37 @@ func TestSweepOnce_PurgesRetiredMessages(t *testing.T) {
 // a daemon that restarts often would otherwise never prune anything. Uses a
 // deliberately long interval so an early sweep is the only way the log line
 // can appear within the short poll window below.
+//
+// sweepDeadAgents' cutoff is the real wall clock (time.Now(), not the
+// store's overridable one), so the seeded agent's LastSeen is set an hour
+// in the past for a comfortable, scheduling-jitter-proof margin -- unlike
+// age-based message/observation sweeping, there is no millisecond-precision
+// race to lose here.
 func TestSweepLoop_SweepsOnceAtStartup(t *testing.T) {
 	var mu sync.Mutex
 	var buf bytes.Buffer
-	ts := newTestServer(t, func(c *Config) {
+	newTestServerFull(t, func(c *Config) {
 		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
 		c.SweepInterval = time.Hour
-		// A DeadAfter of 0 would fall back to the 24h default (withDefaults
-		// treats non-positive as "unset"); a tiny positive value keeps the
-		// observation sweepable the instant it's older than this cutoff.
-		c.DeadAfter = time.Nanosecond
+		c.DeadAfter = time.Minute
+	}, func() time.Time { return time.Now().Add(-time.Hour) }, func(st *store.Store) {
+		// Seeded before Serve starts: sweepLoop's first sweep runs the instant
+		// its goroutine is scheduled, so inserting after construction would
+		// race it -- the agent might not exist yet when that sweep runs, and
+		// the next one is an hour away.
+		if err := st.Register(context.Background(), store.Agent{
+			Workspace: "ws", Name: "gone", Cwd: "/g", PID: implausiblePID,
+		}, time.Time{}); err != nil {
+			t.Fatalf("register: %v", err)
+		}
 	})
-	ctx := context.Background()
-	if err := ts.store.Observe(ctx, store.Observation{Workspace: "ws", Name: "alice", Kind: "tool"}); err != nil {
-		t.Fatalf("observe: %v", err)
-	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		got := buf.String()
 		mu.Unlock()
-		if strings.Contains(got, "observation") {
+		if strings.Contains(got, "dead agent") {
 			return // the startup sweep ran well before the 1-hour interval ever could
 		}
 		time.Sleep(10 * time.Millisecond)
