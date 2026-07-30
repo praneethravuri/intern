@@ -1,4 +1,4 @@
-package main
+package daemon
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 const (
 	defaultStaleAfter      = 5 * time.Minute
 	defaultDeadAfter       = 24 * time.Hour
+	defaultRetainMessages  = 7 * 24 * time.Hour
 	defaultSweepInterval   = 5 * time.Minute
 	defaultShutdownTimeout = 5 * time.Second
 	defaultRequestTimeout  = 30 * time.Second
@@ -52,6 +53,11 @@ type Config struct {
 	// DeadAfter is how old an unacked message may get before the sweeper
 	// retires it.
 	DeadAfter time.Duration
+	// RetainMessages is how long read or dead mail stays in the database
+	// before the sweeper deletes it outright, so the file plateaus instead
+	// of growing forever. Separate from DeadAfter: unread mail is marked
+	// dead first, then deleted once it's also past this window.
+	RetainMessages time.Duration
 	// SweepInterval is how often the sweeper runs.
 	SweepInterval time.Duration
 	// ShutdownTimeout bounds how long Serve waits for in-flight connections.
@@ -74,6 +80,7 @@ func DefaultConfig() Config {
 	return Config{
 		StaleAfter:      defaultStaleAfter,
 		DeadAfter:       defaultDeadAfter,
+		RetainMessages:  defaultRetainMessages,
 		SweepInterval:   defaultSweepInterval,
 		ShutdownTimeout: defaultShutdownTimeout,
 		RequestTimeout:  defaultRequestTimeout,
@@ -91,6 +98,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.DeadAfter <= 0 {
 		c.DeadAfter = d.DeadAfter
+	}
+	if c.RetainMessages <= 0 {
+		c.RetainMessages = d.RetainMessages
 	}
 	if c.SweepInterval <= 0 {
 		c.SweepInterval = d.SweepInterval
@@ -163,7 +173,7 @@ func (s *Server) Config() Config { return s.cfg }
 // ShutdownTimeout, then returns once all goroutines have stopped.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	if ln == nil {
-		return errors.New("tetherd: nil listener")
+		return errors.New("tether: nil listener")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -255,8 +265,11 @@ func (s *Server) awaitConns() {
 }
 
 // sweepLoop retires unacked mail, old observations, and dead agent rows that
-// nobody ever came back for.
+// nobody ever came back for. It sweeps once immediately, before the first
+// tick, so a daemon that restarts often still prunes something.
 func (s *Server) sweepLoop(ctx context.Context) {
+	s.sweepOnce(ctx)
+
 	t := time.NewTicker(s.cfg.SweepInterval)
 	defer t.Stop()
 
@@ -277,6 +290,14 @@ func (s *Server) sweepOnce(ctx context.Context) {
 		}
 	} else if n > 0 {
 		s.log.Printf("swept %d dead message(s)", n)
+	}
+
+	if n, err := s.store.PurgeMessages(ctx, s.cfg.RetainMessages); err != nil {
+		if ctx.Err() == nil {
+			s.log.Printf("purge retired messages failed: %v", err)
+		}
+	} else if n > 0 {
+		s.log.Printf("purged %d message(s)", n)
 	}
 
 	if n, err := s.store.SweepObservations(ctx, s.cfg.DeadAfter); err != nil {
@@ -467,10 +488,12 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 		return s.handleInbox(ctx, req)
 	case protocol.MethodWait:
 		return s.handleWait(ctx, req)
-	case protocol.MethodWho:
-		return s.handleWho(ctx, req)
-	case protocol.MethodStatus:
-		return s.handleStatus(ctx, req)
+	case protocol.MethodLs:
+		return s.handleLs(ctx, req)
+	case protocol.MethodExplain:
+		return s.handleExplain(ctx, req)
+	case protocol.MethodStats:
+		return s.handleStats(ctx, req)
 	default:
 		return protocol.Fail(req.ID, protocol.CodeBadRequest, "unknown method: "+clip(req.Method))
 	}
@@ -485,7 +508,7 @@ func (s *Server) handleRegister(ctx context.Context, req protocol.Request, peerP
 		return s.fail(req.ID, err, "register")
 	}
 
-	name, ws, err := requireAddress(p.Name, p.Workspace)
+	ws, err := requireWorkspace(p.Workspace)
 	if err != nil {
 		return s.fail(req.ID, err, "register")
 	}
@@ -493,6 +516,34 @@ func (s *Server) handleRegister(ctx context.Context, req protocol.Request, peerP
 	harness := stripControl(strings.TrimSpace(p.Harness))
 	if harness == "" {
 		harness = "unknown"
+	}
+	session := stripControl(strings.TrimSpace(p.SessionID))
+
+	// A session that already holds a name in ws: resolving an empty Name
+	// falls back to it, and an explicit different Name renames it in place.
+	var existingName string
+	if session != "" {
+		if n, findErr := s.store.FindNameBySession(ctx, ws, session); findErr == nil {
+			existingName = n
+		} else if !errors.Is(findErr, store.ErrNoSuchAgent) {
+			return s.fail(req.ID, findErr, "register")
+		}
+	}
+
+	name := strings.TrimSpace(p.Name)
+	switch {
+	case name == "" && existingName != "":
+		name = existingName
+	case name == "":
+		name, err = s.mintFreeName(ctx, ws, harness, session)
+		if err != nil {
+			return s.fail(req.ID, err, "register")
+		}
+	default:
+		name, err = requireName(name)
+		if err != nil {
+			return s.fail(req.ID, err, "register")
+		}
 	}
 
 	// Peer pid is a fallback for when the client didn't supply a session pid.
@@ -513,24 +564,89 @@ func (s *Server) handleRegister(ctx context.Context, req protocol.Request, peerP
 		Workspace: ws,
 		Name:      name,
 		Harness:   harness,
-		SessionID: stripControl(strings.TrimSpace(p.SessionID)),
+		SessionID: session,
 		Cwd:       stripControl(p.Cwd),
 		PID:       sessionPID,
 		PIDStart:  pidStart,
 	}
 
-	created, err := s.registerOrReclaim(ctx, a)
-	if err != nil {
-		return s.fail(req.ID, err, "register")
+	var created, renamed bool
+	if existingName != "" && existingName != name {
+		if _, err := s.store.Rename(ctx, a); err != nil {
+			if errors.Is(err, store.ErrNameTaken) {
+				err = s.withNameSuggestion(ctx, err, ws, name)
+			}
+			return s.fail(req.ID, err, "register")
+		}
+		renamed = true
+	} else {
+		created, err = s.registerOrReclaim(ctx, a)
+		if err != nil {
+			if errors.Is(err, store.ErrNameTaken) {
+				err = s.withNameSuggestion(ctx, err, ws, name)
+			}
+			return s.fail(req.ID, err, "register")
+		}
 	}
 
 	s.touch(ctx, ws, name, "register", harness)
-	s.log.Printf("registered %s (harness=%s pid=%d created=%v)", a.Address(), harness, sessionPID, created)
+	s.log.Printf("registered %s (harness=%s pid=%d created=%v renamed=%v)",
+		a.Address(), harness, sessionPID, created, renamed)
 	return protocol.OK(req.ID, protocol.RegisterResult{
 		Address: a.Address(),
+		Name:    name,
 		Harness: harness,
 		Created: created,
+		Renamed: renamed,
 	})
+}
+
+// mintFreeName synthesises a name from harness+session and finds a free
+// variant, for a register with no chosen name and no existing registration
+// to resolve to.
+func (s *Server) mintFreeName(ctx context.Context, ws, harness, session string) (string, error) {
+	base := mintName(harness, session)
+	if free, err := s.isNameFree(ctx, ws, base); err != nil {
+		return "", err
+	} else if free {
+		return base, nil
+	}
+	if alt := s.firstFreeSuffixed(ctx, ws, base); alt != "" {
+		return alt, nil
+	}
+	return "", fmt.Errorf("could not find a free name derived from %s", base)
+}
+
+// withNameSuggestion enriches a name-conflict error with a free alternative
+// (target-2, target-3, ...), so a rejected register has something concrete
+// to try next.
+func (s *Server) withNameSuggestion(ctx context.Context, err error, ws, target string) error {
+	if alt := s.firstFreeSuffixed(ctx, ws, target); alt != "" {
+		return fmt.Errorf("%w — try %s@%s", err, alt, ws)
+	}
+	return err
+}
+
+// isNameFree reports whether no agent in ws is named name.
+func (s *Server) isNameFree(ctx context.Context, ws, name string) (bool, error) {
+	if _, err := s.store.GetAgent(ctx, ws, name); errors.Is(err, store.ErrNoSuchAgent) {
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// firstFreeSuffixed returns base-2, base-3, ... up to a small bound --
+// whichever names no agent in ws yet -- or "" if none of them do.
+func (s *Server) firstFreeSuffixed(ctx context.Context, ws, base string) string {
+	for i := 2; i <= 20; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if free, err := s.isNameFree(ctx, ws, candidate); err == nil && free {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // registerOrReclaim performs the guarded register, and when the name is held
@@ -843,9 +959,9 @@ func (s *Server) handleWait(ctx context.Context, req protocol.Request) protocol.
 	}
 }
 
-// handleWho lists agents plus their computed state. ws is used exactly as
+// handleLs lists agents plus their computed state. ws is used exactly as
 // sent; --all and --workspace compose rather than one overriding the other.
-func (s *Server) handleWho(ctx context.Context, req protocol.Request) protocol.Response {
+func (s *Server) handleLs(ctx context.Context, req protocol.Request) protocol.Response {
 	var p protocol.WhoParams
 	if err := decodeParams(req, &p); err != nil {
 		return s.fail(req.ID, err, "who")
@@ -906,7 +1022,7 @@ func (s *Server) fleetSignals(ctx context.Context, agents []store.Agent) (map[st
 	return obs, pending, nil
 }
 
-func (s *Server) handleStatus(ctx context.Context, req protocol.Request) protocol.Response {
+func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protocol.Response {
 	var p protocol.StatusParams
 	if err := decodeParams(req, &p); err != nil {
 		return s.fail(req.ID, err, "status")
@@ -931,6 +1047,19 @@ func (s *Server) handleStatus(ctx context.Context, req protocol.Request) protoco
 	blocked := s.waiters.Count(a.Address()) > 0
 	sr := computeState(a, last, blocked, time.Now())
 	return protocol.OK(req.ID, protocol.StatusResult{Agent: agentView(a, sr, pending)})
+}
+
+// handleStats reports row counts for doctor's database health line.
+func (s *Server) handleStats(ctx context.Context, req protocol.Request) protocol.Response {
+	st, err := s.store.Stats(ctx)
+	if err != nil {
+		return s.fail(req.ID, err, "stats")
+	}
+	return protocol.OK(req.ID, protocol.StatsResult{
+		Messages:     st.Messages,
+		Agents:       st.Agents,
+		Observations: st.Observations,
+	})
 }
 
 // -- errors -----------------------------------------------------------------
@@ -1031,9 +1160,13 @@ func requireAddress(name, ws string) (string, string, error) {
 	return name, ws, nil
 }
 
+// MaxNameLength keeps a name short enough to stay readable in the ls table
+// and in a name@workspace address.
+const MaxNameLength = 32
+
 // requireName validates and normalises one agent name: no "@" (ambiguous
-// with "name@workspace"), no control bytes, and "*"/"all" are reserved for
-// broadcast addressing.
+// with "name@workspace"), no control bytes, not too long, and "*"/"all" are
+// reserved for broadcast addressing.
 func requireName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -1044,6 +1177,9 @@ func requireName(name string) (string, error) {
 	}
 	if hasControlBytes(name) {
 		return "", badRequest("name must not contain control characters")
+	}
+	if len(name) > MaxNameLength {
+		return "", badRequest("name must be at most %d characters", MaxNameLength)
 	}
 	if name == broadcastStar || name == broadcastAll {
 		return "", badRequest("%q is a reserved name and cannot be registered", name)

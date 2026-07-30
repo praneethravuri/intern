@@ -1,4 +1,4 @@
-package main
+package daemon
 
 import (
 	"fmt"
@@ -67,6 +67,44 @@ func TestAcquireLock_LiveProcessIsNotReclaimed(t *testing.T) {
 	}
 }
 
+// TestAcquireLock_RecycledPIDIsReclaimed is the headline fix: a lock file
+// naming this test's own pid but a start time that does not match it is a
+// pid the crashed daemon held that the OS has since handed to an unrelated
+// process (this one) -- proc.AliveAt must see through that and let the lock
+// be reclaimed, rather than refusing to start forever.
+func TestAcquireLock_RecycledPIDIsReclaimed(t *testing.T) {
+	dir := shortTempDir(t)
+	path := filepath.Join(dir, "s.lock")
+
+	wrongStart := int64(1) // this process's real start time is certainly not 1
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("%d %d\n", os.Getpid(), wrongStart)), 0o600); err != nil {
+		t.Fatalf("write lock: %v", err)
+	}
+
+	release, err := acquireLock(path)
+	if err != nil {
+		t.Fatalf("acquireLock did not reclaim a lock with a mismatched start time: %v", err)
+	}
+	release()
+}
+
+// TestAcquireLock_LegacySingleFieldFileStillHonoured proves a lock file
+// written by an older tether (pid only, no start time) still blocks a
+// second start when that pid is genuinely alive -- start 0 is proc.AliveAt's
+// "unknown," which falls back to a plain pid check.
+func TestAcquireLock_LegacySingleFieldFileStillHonoured(t *testing.T) {
+	dir := shortTempDir(t)
+	path := filepath.Join(dir, "s.lock")
+
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600); err != nil {
+		t.Fatalf("write legacy lock: %v", err)
+	}
+
+	if _, err := acquireLock(path); err == nil {
+		t.Fatal("acquireLock reclaimed a legacy lock naming a live process")
+	}
+}
+
 // TestAcquireLock_ReleaseThenReacquire proves the released lock file is
 // actually gone and a later, unrelated start is unaffected by an earlier one
 // that shut down cleanly.
@@ -126,19 +164,37 @@ func TestAcquireLock_ConcurrentCallersOnlyOneWins(t *testing.T) {
 	}
 }
 
-func TestReadLockPID_RoundTrip(t *testing.T) {
+func TestReadLockIdentity_RoundTrip(t *testing.T) {
+	dir := shortTempDir(t)
+	path := filepath.Join(dir, "s.lock")
+
+	if err := os.WriteFile(path, []byte("4242 99999\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	pid, start, err := readLockIdentity(path)
+	if err != nil {
+		t.Fatalf("readLockIdentity: %v", err)
+	}
+	if pid != 4242 || start != 99999 {
+		t.Fatalf("pid, start = %d, %d, want 4242, 99999", pid, start)
+	}
+}
+
+// TestReadLockIdentity_LegacySingleField proves a pid-only file (written by
+// an older tether) parses with start 0, rather than failing.
+func TestReadLockIdentity_LegacySingleField(t *testing.T) {
 	dir := shortTempDir(t)
 	path := filepath.Join(dir, "s.lock")
 
 	if err := os.WriteFile(path, []byte("4242\n"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	pid, err := readLockPID(path)
+	pid, start, err := readLockIdentity(path)
 	if err != nil {
-		t.Fatalf("readLockPID: %v", err)
+		t.Fatalf("readLockIdentity: %v", err)
 	}
-	if pid != 4242 {
-		t.Fatalf("pid = %d, want 4242", pid)
+	if pid != 4242 || start != 0 {
+		t.Fatalf("pid, start = %d, %d, want 4242, 0", pid, start)
 	}
 }
 
@@ -161,26 +217,26 @@ func TestAcquireLock_UnreadableLockFile(t *testing.T) {
 	}
 }
 
-func TestReadLockPID_Unreadable(t *testing.T) {
+func TestReadLockIdentity_Unreadable(t *testing.T) {
 	dir := shortTempDir(t)
 	path := filepath.Join(dir, "s.lock")
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatalf("seed directory standing in for the lock file: %v", err)
 	}
 
-	if _, err := readLockPID(path); err == nil {
-		t.Fatal("readLockPID on a directory: want error, got nil")
+	if _, _, err := readLockIdentity(path); err == nil {
+		t.Fatal("readLockIdentity on a directory: want error, got nil")
 	}
 }
 
-func TestReadLockPID_Malformed(t *testing.T) {
+func TestReadLockIdentity_Malformed(t *testing.T) {
 	dir := shortTempDir(t)
 	path := filepath.Join(dir, "s.lock")
 
 	if err := os.WriteFile(path, []byte("not a pid"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if _, err := readLockPID(path); err == nil {
-		t.Fatal("readLockPID accepted a non-numeric lock file")
+	if _, _, err := readLockIdentity(path); err == nil {
+		t.Fatal("readLockIdentity accepted a non-numeric lock file")
 	}
 }

@@ -1,11 +1,12 @@
-//go:build linux
+//go:build darwin
 
-package main
+package daemon
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
 	"net"
+
+	"golang.org/x/sys/unix"
 )
 
 func getPeerPID(conn net.Conn) (int, error) {
@@ -21,11 +22,7 @@ func getPeerPID(conn net.Conn) (int, error) {
 
 	var pid int
 	err = raw.Control(func(fd uintptr) {
-		cred, err := unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-		if err == nil {
-			pid = int(cred.Pid)
-		}
+		pid, _ = unix.GetsockoptInt(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEEREPID)
 	})
-
 	return pid, err
 }

@@ -12,9 +12,9 @@ import (
 
 const doctorLong = `Check that tether is actually working, and say so plainly when it is not.
 
-doctor reports the socket it would talk to, whether tetherd is answering, which
-workspace this directory resolves to, which harness it detects, and every agent
-registered here.
+doctor reports the socket it would talk to, whether the daemon is answering,
+which workspace this directory resolves to, which harness it detects, and
+every agent registered here.
 
 Nothing currently pushes a notification when mail arrives, so every agent
 sees a message only if it polls with ` + "`tether inbox`" + ` or blocks on
@@ -30,10 +30,21 @@ type doctorReport struct {
 	Cwd           string               `json:"cwd"`
 	Harness       string               `json:"harness"`
 	SessionID     string               `json:"session_id,omitempty"`
-	Self          string               `json:"self,omitempty"`
+	DBPath        string               `json:"db_path,omitempty"`
+	DBSizeBytes   int64                `json:"db_size_bytes,omitempty"`
+	DBRows        *doctorDBRows        `json:"db_rows,omitempty"`
 	Agents        []protocol.AgentView `json:"agents"`
+	DaemonLogPath string               `json:"daemon_log_path,omitempty"`
 	Warnings      []string             `json:"warnings"`
 	Error         string               `json:"error,omitempty"`
+}
+
+// doctorDBRows is only populated when the daemon answered (row counts
+// require its help; the path and size above don't).
+type doctorDBRows struct {
+	Messages     int `json:"messages"`
+	Agents       int `json:"agents"`
+	Observations int `json:"observations"`
 }
 
 func newDoctorCmd() *cobra.Command {
@@ -80,7 +91,6 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 	report := doctorReport{
 		Agents:   []protocol.AgentView{},
 		Warnings: []string{},
-		Self:     env(envName),
 	}
 
 	if sock, err := protocol.SocketPath(); err == nil {
@@ -109,13 +119,31 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 				"show harness \"unknown\".")
 	}
 
+	if dbPath, err := protocol.DBPath(); err == nil {
+		report.DBPath = dbPath
+		if info, err := os.Stat(dbPath); err == nil {
+			report.DBSizeBytes = info.Size()
+		}
+	}
+	if logPath, err := daemonLogPath(); err == nil {
+		report.DaemonLogPath = logPath
+	}
+
 	var who protocol.WhoResult
-	err := call(protocol.MethodWho, protocol.WhoParams{Workspace: report.Workspace}, &who)
+	err := doCall(protocol.MethodLs, protocol.WhoParams{Workspace: report.Workspace}, &who,
+		defaultCallTimeout, false)
 	switch err {
 	case nil:
 		report.DaemonRunning = true
 		if who.Agents != nil {
 			report.Agents = who.Agents
+		}
+
+		var stats protocol.StatsResult
+		if err := doCall(protocol.MethodStats, nil, &stats, defaultCallTimeout, false); err == nil {
+			report.DBRows = &doctorDBRows{
+				Messages: stats.Messages, Agents: stats.Agents, Observations: stats.Observations,
+			}
 		}
 	default:
 		var ee *exitError
@@ -128,6 +156,21 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 	}
 
 	return report
+}
+
+// humanBytes renders a byte count as e.g. "1.2 MB" -- decimal (1000-based)
+// units, matching how disk usage is normally reported.
+func humanBytes(n int64) string {
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
 }
 
 // writeDoctorReport renders the report to stdout; warnings go to stderr.
@@ -151,10 +194,18 @@ func writeDoctorReport(cmd *cobra.Command, r doctorReport) error {
 		{"cwd", dash(r.Cwd)},
 		{"harness", dash(harness)},
 	}
-	if r.Self != "" {
-		pairs = append(pairs, [2]string{"registered as", sanitizeTerminal(r.Self) + " (from $" + envName + ")"})
+	if r.DBPath != "" {
+		pairs = append(pairs, [2]string{"database", fmt.Sprintf("%s (%s)", r.DBPath, humanBytes(r.DBSizeBytes))})
 	}
-
+	if r.DBRows != nil {
+		pairs = append(pairs, [2]string{"db rows", fmt.Sprintf("%s · %s · %s",
+			plural(r.DBRows.Messages, "message", "messages"),
+			plural(r.DBRows.Agents, "agent", "agents"),
+			plural(r.DBRows.Observations, "observation", "observations"))})
+	}
+	if r.DaemonLogPath != "" {
+		pairs = append(pairs, [2]string{"daemon log", r.DaemonLogPath})
+	}
 	if _, err := fmt.Fprintln(out, "tether doctor"); err != nil {
 		return err
 	}
@@ -163,7 +214,7 @@ func writeDoctorReport(cmd *cobra.Command, r doctorReport) error {
 	}
 
 	if !r.DaemonRunning {
-		_, err := fmt.Fprintln(out, "\nno tetherd running — start it with `tetherd`")
+		_, err := fmt.Fprintln(out, "\nno daemon running — start it with `tether`")
 		return err
 	}
 

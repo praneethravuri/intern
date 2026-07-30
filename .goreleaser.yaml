@@ -10,35 +10,16 @@ builds:
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: -s -w -X main.version=v{{ .Version }}
-    goos: [linux, darwin, windows]
+    goos: [linux, darwin]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
-  - id: tetherd
-    main: ./cmd/tetherd
-    binary: tetherd
-    env: [CGO_ENABLED=0]
-    flags: [-trimpath]
-    ldflags: -s -w -X main.version=v{{ .Version }}
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
 
-# One archive per platform holding both binaries, so a single download
-# installs the pair. Name has no version in it, so install.sh can use the
-# stable /releases/latest/download/ and /releases/download/<tag>/ URLs with
-# no GitHub API call.
+# One archive per platform. Name has no version in it, so install.sh can use
+# the stable /releases/latest/download/ and /releases/download/<tag>/ URLs
+# with no GitHub API call.
 archives:
   - id: tether
-    ids: [tether, tetherd]
     name_template: "tether_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
     files: [LICENSE, README.md]
 
 checksum:

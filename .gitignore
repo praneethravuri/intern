@@ -2,8 +2,6 @@
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
 # Binaries for programs and plugins
-*.exe
-*.exe~
 *.dll
 *.so
 *.dylib
@@ -39,10 +37,9 @@ codeDocs/
 # Log files
 *.log
 
-# Build artifacts (root-level binaries only -- unanchored would also match
-# the cmd/tether and cmd/tetherd source directories)
+# Build artifact (root-level only -- unanchored would also match the
+# cmd/tether source directory)
 /tether
-/tetherd
 
 # Cross-compilation output from `make cross`
 /dist/
@@ -68,3 +65,7 @@ codeDocs/
 
 # Claude Code
 .claude
+
+# npx skills add's local install/lockfile, if run in this checkout
+.agents/
+skills-lock.json

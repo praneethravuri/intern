@@ -367,3 +367,23 @@ func (s *Store) SweepDead(ctx context.Context, olderThan time.Duration) (int, er
 	}
 	return int(n), nil
 }
+
+// PurgeMessages deletes read or dead mail older than olderThan, so the
+// database plateaus instead of growing forever. Pending mail is never
+// touched regardless of age.
+func (s *Store) PurgeMessages(ctx context.Context, olderThan time.Duration) (int, error) {
+	cutoff := s.nowMS()
+	if olderThan > 0 {
+		cutoff -= olderThan.Milliseconds()
+	}
+
+	res, err := s.w.ExecContext(ctx, qPurgeMessages, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("store: purge messages: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("store: purge messages: %w", err)
+	}
+	return int(n), nil
+}

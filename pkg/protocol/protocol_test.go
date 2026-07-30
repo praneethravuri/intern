@@ -72,8 +72,8 @@ func TestRequest_RoundTripAllMethods(t *testing.T) {
 		{MethodSend, SendParams{FromName: "a", FromWorkspace: "w", FromSession: "s", ToName: "b", ToWorkspace: "w", Kind: "ask", Body: "hi", ReplyTo: "m1"}},
 		{MethodInbox, InboxParams{Name: "a", Workspace: "w", Limit: 10, Replay: true}},
 		{MethodWait, WaitParams{Name: "a", Workspace: "w", TimeoutMS: 5000}},
-		{MethodWho, WhoParams{Workspace: "w", All: true}},
-		{MethodStatus, StatusParams{Name: "a", Workspace: "w"}},
+		{MethodLs, WhoParams{Workspace: "w", All: true}},
+		{MethodExplain, StatusParams{Name: "a", Workspace: "w"}},
 	}
 
 	for _, tc := range cases {
@@ -305,7 +305,7 @@ func TestResponse_OmitEmpty(t *testing.T) {
 	})
 
 	t.Run("no params key when Params is empty", func(t *testing.T) {
-		data, err := json.Marshal(Request{ID: "id-1", Method: MethodWho})
+		data, err := json.Marshal(Request{ID: "id-1", Method: MethodLs})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -325,7 +325,7 @@ func TestNewlineDelimitedFraming(t *testing.T) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 
-	methods := []string{MethodRegister, MethodSend, MethodInbox, MethodWait, MethodWho}
+	methods := []string{MethodRegister, MethodSend, MethodInbox, MethodWait, MethodLs}
 	for i, m := range methods {
 		req := Request{ID: string(rune('a' + i)), Method: m}
 		if err := enc.Encode(req); err != nil {

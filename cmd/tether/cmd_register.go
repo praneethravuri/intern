@@ -4,13 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
-const registerLong = `Register this agent with tetherd so other agents can address it.
+const registerLong = `Register this agent with the daemon so other agents can address it.
 
 The name is claimed inside a workspace, which is the basename of the git root
 of the current directory unless --workspace or $TETHER_WORKSPACE says
@@ -18,26 +19,24 @@ otherwise. Other agents then reach you at name@workspace.
 
 Every other command registers implicitly before its real request, so running
 this explicitly is optional -- it exists to let you pick a name and see it
-confirmed up front, and to check a name is free before you start relying on
-it.
+confirmed up front. With no name at all, the daemon mints one and reports it.
 
-Export the name so later commands do not need --as:
-
-  export TETHER_NAME=frontend`
+Running this again with a different name renames you in place, and moves
+your pending mail along with it -- your old name stops working immediately.`
 
 func newRegisterCmd() *cobra.Command {
 	var opts identityFlags
 
 	cmd := &cobra.Command{
-		Use:   "register",
+		Use:   "register [name]",
 		Short: "Register this agent so others can reach it",
 		Long:  registerLong,
-		Example: "  tether register --as frontend\n" +
-			"  tether register --as backend --workspace storefront\n" +
-			"  tether register --as reviewer --json",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runRegister(cmd, &opts)
+		Example: "  tether register frontend\n" +
+			"  tether register backend --workspace storefront\n" +
+			"  tether register --json",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRegister(cmd, args, &opts)
 		},
 	}
 
@@ -47,8 +46,13 @@ func newRegisterCmd() *cobra.Command {
 	return quiet(cmd)
 }
 
-func runRegister(cmd *cobra.Command, opts *identityFlags) error {
-	name, workspace, err := resolveSelf(opts.name, opts.workspace)
+func runRegister(cmd *cobra.Command, args []string, opts *identityFlags) error {
+	nameFlag := opts.name
+	if len(args) == 1 && strings.TrimSpace(args[0]) != "" {
+		nameFlag = args[0]
+	}
+
+	name, workspace, err := resolveSelf(nameFlag, opts.workspace)
 	if err != nil {
 		return err
 	}
@@ -81,12 +85,15 @@ func runRegister(cmd *cobra.Command, opts *identityFlags) error {
 
 	addr := res.Address
 	if addr == "" {
-		addr = address(name, workspace)
+		addr = address(res.Name, workspace)
 	}
 	addr = sanitizeTerminal(addr)
 
 	verb := "registered"
-	if !res.Created {
+	switch {
+	case res.Renamed:
+		verb = "renamed to"
+	case !res.Created:
 		verb = "refreshed registration for"
 	}
 	if _, err := fmt.Fprintf(out, "%s %s\n", verb, addr); err != nil {
@@ -97,15 +104,17 @@ func runRegister(cmd *cobra.Command, opts *identityFlags) error {
 	})
 }
 
-// registerError turns a 409 (name held by a live agent) into an actionable message.
+// registerError turns a 409 (name held by a live agent) into an actionable
+// message. The daemon's own message already carries a free alternative when
+// one was found (see withNameSuggestion in internal/daemon).
 func registerError(name, workspace string, err error) error {
 	if code, ok := daemonCode(err); ok && code == protocol.CodeConflict {
 		var pe *protocol.Error
 		_ = errors.As(err, &pe)
 		return fail(exitConflict, fmt.Errorf(
 			"cannot register %s: %s\n"+
-				"       the name is held by a live agent — pick a different --as name, "+
-				"or run `tether who` to see who holds it",
+				"       the name is held by a live agent — pick a different name, "+
+				"or run `tether ls` to see who holds it",
 			address(name, workspace), sanitizeTerminal(pe.Message)))
 	}
 	return err

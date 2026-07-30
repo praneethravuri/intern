@@ -1,7 +1,10 @@
 package main
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/praneethravuri/tether/internal/daemon"
 )
 
 func TestResolveTarget(t *testing.T) {
@@ -223,9 +226,7 @@ func TestDetectHarness(t *testing.T) {
 }
 
 func TestResolveSelf(t *testing.T) {
-	t.Run("flags win over the environment", func(t *testing.T) {
-		setIdentity(t, "from-env", "env-ws")
-
+	t.Run("flag name and workspace are returned as given", func(t *testing.T) {
 		name, ws, err := resolveSelf("from-flag", "flag-ws")
 		if err != nil {
 			t.Fatalf("resolveSelf: %v", err)
@@ -235,25 +236,23 @@ func TestResolveSelf(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to the environment", func(t *testing.T) {
-		setIdentity(t, "frontend", "storefront")
+	t.Run("workspace falls back to $TETHER_WORKSPACE", func(t *testing.T) {
+		t.Setenv("TETHER_WORKSPACE", "storefront")
 
 		name, ws, err := resolveSelf("", "")
 		if err != nil {
 			t.Fatalf("resolveSelf: %v", err)
 		}
-		if name != "frontend" || ws != "storefront" {
-			t.Fatalf("resolveSelf = (%q, %q), want (frontend, storefront)", name, ws)
+		if name != "" || ws != "storefront" {
+			t.Fatalf("resolveSelf = (%q, %q), want (\"\", storefront)", name, ws)
 		}
 	})
 
-	t.Run("no name anywhere derives one instead of erroring", func(t *testing.T) {
-		// This is the behaviour implicit registration replaces: resolveSelf
-		// used to hard-error here, requiring an explicit `tether register`
-		// or --as before any other command could run at all.
-		t.Setenv(envName, "")
-		t.Setenv(envSessionOverride, "shell-abc")
-		clearHarnessEnv(t)
+	t.Run("no name anywhere is empty, not an error", func(t *testing.T) {
+		// An empty name is now valid: ensureRegistered sends it as-is, and
+		// the daemon resolves it against this session's existing
+		// registration or mints one -- resolveSelf itself no longer derives
+		// anything client-side.
 		t.Setenv("TETHER_WORKSPACE", "storefront")
 
 		name, ws, err := resolveSelf("", "")
@@ -263,18 +262,13 @@ func TestResolveSelf(t *testing.T) {
 		if ws != "storefront" {
 			t.Fatalf("workspace = %q, want storefront", ws)
 		}
-		if name == "" {
-			t.Fatal("resolveSelf derived an empty name")
-		}
-		if err := validateName(name); err != nil {
-			t.Fatalf("derived name %q is not a valid name: %v", name, err)
+		if name != "" {
+			t.Fatalf("name = %q, want empty", name)
 		}
 	})
 
 	t.Run("an address passed to --as is rejected", func(t *testing.T) {
-		setIdentity(t, "", "storefront")
-
-		_, _, err := resolveSelf("frontend@storefront", "")
+		_, _, err := resolveSelf("frontend@storefront", "storefront")
 		if err == nil {
 			t.Fatal("resolveSelf accepted an address as a name")
 		}
@@ -314,6 +308,18 @@ func TestValidateNameAcceptsOrdinaryNames(t *testing.T) {
 		if err := validateName(name); err != nil {
 			t.Fatalf("validateName(%q) = %v, want nil", name, err)
 		}
+	}
+}
+
+func TestValidateNameEnforcesTheLengthCap(t *testing.T) {
+	ok := strings.Repeat("a", daemon.MaxNameLength)
+	if err := validateName(ok); err != nil {
+		t.Fatalf("validateName(32 chars) = %v, want nil", err)
+	}
+
+	tooLong := strings.Repeat("a", daemon.MaxNameLength+1)
+	if err := validateName(tooLong); err == nil {
+		t.Fatal("validateName(33 chars) = nil, want an error")
 	}
 }
 
@@ -360,46 +366,12 @@ func TestSyntheticSessionIDIsStableForThisProcess(t *testing.T) {
 	// a != "".
 }
 
-// -- M3: implicit registration's derived name --------------------------------
-
-// TestDerivedNameIsStableForTheSameSession is the core guarantee behind
-// implicit registration: the same session id must always derive the same
-// name, or two invocations from the same shell would derive two different
-// names and never see each other's registration as idempotent.
-func TestDerivedNameIsStableForTheSameSession(t *testing.T) {
+// TestAsIsNeverOverridden proves --as always wins: a caller that explicitly
+// names itself gets exactly that name back, regardless of session/harness
+// state. Minting a name from harness+session is now the daemon's job (see
+// internal/daemon/suggest.go's mintName), not resolveSelf's.
+func TestAsIsNeverOverridden(t *testing.T) {
 	clearHarnessEnv(t)
-	t.Setenv(envSessionOverride, "session-a")
-
-	a := derivedName()
-	b := derivedName()
-	if a != b {
-		t.Fatalf("derivedName() is not stable across calls: %q != %q", a, b)
-	}
-}
-
-// TestDerivedNameDiffersForADifferentSession is the flip side: a different
-// session id must derive a different name, or two unrelated shells would
-// collide on the same identity.
-func TestDerivedNameDiffersForADifferentSession(t *testing.T) {
-	clearHarnessEnv(t)
-
-	t.Setenv(envSessionOverride, "session-a")
-	a := derivedName()
-
-	t.Setenv(envSessionOverride, "session-b")
-	b := derivedName()
-
-	if a == b {
-		t.Fatalf("derivedName() collided for two different sessions: both = %q", a)
-	}
-}
-
-// TestAsOverridesTheDerivedNameEvenWithASessionPresent proves --as always
-// wins: a caller that explicitly names itself must never be overridden by
-// the fallback that only exists for the caller that supplied nothing.
-func TestAsOverridesTheDerivedNameEvenWithASessionPresent(t *testing.T) {
-	clearHarnessEnv(t)
-	t.Setenv(envName, "")
 	t.Setenv(envSessionOverride, "session-a")
 	t.Setenv("TETHER_WORKSPACE", "storefront")
 
