@@ -10,8 +10,7 @@ import (
 	"github.com/praneethravuri/tether/internal/wsname"
 )
 
-// Harness identifiers reported at registration time. They are stable strings:
-// the daemon maps them to a notifier and a wake tier.
+// Harness identifiers reported at registration time.
 const (
 	harnessClaudeCode = "claude-code"
 	harnessGeminiCLI  = "gemini-cli"
