@@ -101,10 +101,10 @@ func TestAggregateNoParts(t *testing.T) {
 
 func TestNextPrintsTheSuggestion(t *testing.T) {
 	var buf bytes.Buffer
-	if err := next(&buf, `tether send --to backend "..."`); err != nil {
+	if err := next(&buf, `tether send backend "..."`); err != nil {
 		t.Fatalf("next: %v", err)
 	}
-	if got, want := buf.String(), "Next: tether send --to backend \"...\"\n"; got != want {
+	if got, want := buf.String(), "Next: tether send backend \"...\"\n"; got != want {
 		t.Fatalf("next output = %q, want %q", got, want)
 	}
 }

@@ -13,7 +13,7 @@ import (
 const lsLong = `List the agents registered with the daemon, and what each one is doing.
 
 Only this workspace is shown unless --all is given. NAME is the full address:
-copy it straight into ` + "`tether send --to`" + `.
+copy it straight into ` + "`tether send`" + `.
 
 STATE is computed fresh on every call -- see ` + "`tether explain`" + ` for the
 evidence behind one agent's state.`
@@ -89,7 +89,7 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 	if _, err := fmt.Fprintln(out); err != nil {
 		return err
 	}
-	return next(out, fmt.Sprintf("tether send --to %s \"...\"", agentAddress(res.Agents[0])))
+	return next(out, fmt.Sprintf("tether send %s \"...\"", agentAddress(res.Agents[0])))
 }
 
 // fleetSummaryParts builds the aggregate line, e.g. ["3 agents", "1 quiet"];

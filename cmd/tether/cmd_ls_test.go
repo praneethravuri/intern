@@ -62,7 +62,7 @@ func TestLsHappyPath(t *testing.T) {
 	requireContains(t, out, "frontend@storefront", "stdout")
 	requireContains(t, out, "12s ago", "stdout")
 	requireContains(t, out, "3m ago", "stdout")
-	requireContains(t, out, "Next: tether send --to frontend@storefront", "stdout")
+	requireContains(t, out, "Next: tether send frontend@storefront", "stdout")
 
 	assertColumnsAligned(t, out)
 }
