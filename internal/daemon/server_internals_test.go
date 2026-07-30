@@ -68,7 +68,12 @@ func TestTouch_LogsHeartbeatFailuresWithoutPropagating(t *testing.T) {
 func TestSweepOnce_LogsStoreFailuresWithoutPanicking(t *testing.T) {
 	var mu sync.Mutex
 	var buf bytes.Buffer
-	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0) })
+	// A long SweepInterval keeps the background sweepLoop from firing again
+	// during the test and racing this direct call on the shared log buffer.
+	ts := newTestServer(t, func(c *Config) {
+		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
+		c.SweepInterval = time.Hour
+	})
 
 	if err := ts.store.Close(); err != nil {
 		t.Fatalf("close store: %v", err)
@@ -88,9 +93,12 @@ func TestSweepOnce_SweepsDeadMessages(t *testing.T) {
 	var mu sync.Mutex
 	var buf bytes.Buffer
 	clk := newFakeClock()
+	// A long SweepInterval keeps the background sweepLoop from firing again
+	// during the test and racing this direct call on the shared log buffer.
 	ts := newTestServerWithClock(t, func(c *Config) {
 		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
 		c.DeadAfter = time.Minute
+		c.SweepInterval = time.Hour
 	}, clk.Now)
 	ctx := context.Background()
 
@@ -121,9 +129,12 @@ func TestSweepOnce_PurgesRetiredMessages(t *testing.T) {
 	var mu sync.Mutex
 	var buf bytes.Buffer
 	clk := newFakeClock()
+	// A long SweepInterval keeps the background sweepLoop from firing again
+	// during the test and racing this direct call on the shared log buffer.
 	ts := newTestServerWithClock(t, func(c *Config) {
 		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
 		c.RetainMessages = time.Hour
+		c.SweepInterval = time.Hour
 	}, clk.Now)
 	ctx := context.Background()
 
@@ -220,10 +231,13 @@ func TestSweepDeadAgents_RemovesOnlyStaleAndDeadRows(t *testing.T) {
 	var buf bytes.Buffer
 	// sweepDeadAgents' cutoff is time.Now().Add(-DeadAfter), using the real
 	// wall clock rather than the store's overridable one, so LastSeen has to
-	// predate it by actually being written far in the past.
+	// predate it by actually being written far in the past. A long
+	// SweepInterval also keeps the background sweepLoop from firing again
+	// during the test and racing this direct call on the shared log buffer.
 	ts := newTestServerWithClock(t, func(c *Config) {
 		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
 		c.DeadAfter = time.Minute
+		c.SweepInterval = time.Hour
 	}, func() time.Time { return time.Now().Add(-time.Hour) })
 	ctx := context.Background()
 
@@ -255,7 +269,12 @@ func TestSweepDeadAgents_RemovesOnlyStaleAndDeadRows(t *testing.T) {
 func TestSweepDeadAgents_LogsListFailureWithoutPanicking(t *testing.T) {
 	var mu sync.Mutex
 	var buf bytes.Buffer
-	ts := newTestServer(t, func(c *Config) { c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0) })
+	// A long SweepInterval keeps the background sweepLoop from firing again
+	// during the test and racing this direct call on the shared log buffer.
+	ts := newTestServer(t, func(c *Config) {
+		c.Logger = log.New(&lockedWriter{mu: &mu, w: &buf}, "", 0)
+		c.SweepInterval = time.Hour
+	})
 
 	if err := ts.store.Close(); err != nil {
 		t.Fatalf("close store: %v", err)
