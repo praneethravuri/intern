@@ -27,7 +27,7 @@ const (
 	waitGrace = 30 * time.Second
 )
 
-// call sends one request to tetherd and decodes one response using the
+// call sends one request to the daemon and decodes one response using the
 // default timeout; use callTimeout for wait's longer one.
 func call(method string, params, result any) error {
 	return callTimeout(method, params, result, defaultCallTimeout)
@@ -35,17 +35,23 @@ func call(method string, params, result any) error {
 
 // callTimeout is call with an explicit deadline (<=0 means none). A
 // daemon-side failure comes back as *protocol.Error; anything else as an
-// *exitError. result may be nil to discard the response body.
+// *exitError. result may be nil to discard the response body. A dead socket
+// auto-starts a daemon and retries once -- doctor calls doCall directly with
+// autoStart false, since a health check must never have the side effect of
+// starting what it's checking.
 func callTimeout(method string, params, result any, timeout time.Duration) error {
+	return doCall(method, params, result, timeout, true)
+}
+
+func doCall(method string, params, result any, timeout time.Duration, autoStart bool) error {
 	sock, err := protocol.SocketPath()
 	if err != nil {
 		return failf(exitGeneral, "cannot work out where the tether socket lives: %v", err)
 	}
 
-	conn, err := net.DialTimeout("unix", sock, dialTimeout)
+	conn, err := dial(sock, autoStart)
 	if err != nil {
-		return failf(exitNoDaemon,
-			"no tetherd running (tried socket %s) — start it with `tetherd`", sock)
+		return err
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -67,7 +73,7 @@ func callTimeout(method string, params, result any, timeout time.Duration) error
 	}
 
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return failf(exitGeneral, "cannot send the %s request to tetherd: %v", method, err)
+		return failf(exitGeneral, "cannot send the %s request to the daemon: %v", method, err)
 	}
 
 	counted := &countingReader{r: conn}
@@ -86,10 +92,37 @@ func callTimeout(method string, params, result any, timeout time.Duration) error
 	}
 	if err := json.Unmarshal(resp.Result, result); err != nil {
 		return failf(exitGeneral,
-			"tetherd sent a %s result this version of tether cannot read: %v", method, err)
+			"the daemon sent a %s result this version of tether cannot read: %v", method, err)
 	}
 
 	return nil
+}
+
+// dial connects to sock. If nothing answers and autoStart is set, it spawns
+// a detached daemon and retries once; a spawn failure or a daemon that never
+// becomes dialable still exits exitNoDaemon.
+func dial(sock string, autoStart bool) (net.Conn, error) {
+	conn, err := net.DialTimeout("unix", sock, dialTimeout)
+	if err == nil {
+		return conn, nil
+	}
+	if !autoStart {
+		return nil, failf(exitNoDaemon,
+			"no daemon running (tried socket %s) — start it with `tether`", sock)
+	}
+
+	if startErr := spawnDaemon(sock); startErr != nil {
+		return nil, failf(exitNoDaemon,
+			"no daemon running (tried socket %s) and could not start one automatically: %v "+
+				"— start it manually with `tether`", sock, startErr)
+	}
+
+	conn, err = net.DialTimeout("unix", sock, dialTimeout)
+	if err != nil {
+		return nil, failf(exitNoDaemon,
+			"started a daemon but socket %s is still not reachable: %v", sock, err)
+	}
+	return conn, nil
 }
 
 // countingReader records how many bytes were read from the connection.
@@ -110,12 +143,12 @@ func readError(method string, timeout time.Duration, read int64, err error) erro
 	switch {
 	case read == 0 && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)):
 		return failf(exitGeneral,
-			"tetherd closed the connection without answering the %s request", method)
+			"the daemon closed the connection without answering the %s request", method)
 	case isTimeout(err):
 		return failf(exitGeneral,
-			"tetherd did not answer the %s request within %s", method, timeout)
+			"the daemon did not answer the %s request within %s", method, timeout)
 	default:
-		return failf(exitGeneral, "tetherd sent a malformed response to %s: %v", method, err)
+		return failf(exitGeneral, "the daemon sent a malformed response to %s: %v", method, err)
 	}
 }
 
@@ -144,10 +177,14 @@ func daemonCode(err error) (int, bool) {
 }
 
 // ensureRegistered silently (re-)registers before a command's real request,
-// which is what makes registration implicit. A name conflict is surfaced
-// immediately; any other failure (usually no daemon) is swallowed since the
-// real call right after hits the same failure with a more specific message.
-func ensureRegistered(name, workspace string) error {
+// which is what makes registration implicit. name may be empty, meaning
+// "resolve whatever this session already registered, or mint one" -- the
+// returned name is what the caller's own request must use. A name conflict
+// is surfaced immediately; any other failure (usually no daemon) is
+// swallowed since the real call right after hits the same failure with a
+// more specific message -- in that case the original name is returned
+// unchanged, empty or not.
+func ensureRegistered(name, workspace string) (string, error) {
 	cwd, _ := os.Getwd()
 	harness, session := currentSession()
 
@@ -160,11 +197,15 @@ func ensureRegistered(name, workspace string) error {
 		PID:       os.Getppid(), // the shell, not this short-lived CLI process
 	}
 
-	if err := call(protocol.MethodRegister, params, nil); err != nil {
+	var res protocol.RegisterResult
+	if err := call(protocol.MethodRegister, params, &res); err != nil {
 		if code, ok := daemonCode(err); ok && code == protocol.CodeConflict {
-			return registerError(name, workspace, err)
+			return "", registerError(name, workspace, err)
 		}
-		return nil
+		return name, nil
 	}
-	return nil
+	if res.Name != "" {
+		return res.Name, nil
+	}
+	return name, nil
 }

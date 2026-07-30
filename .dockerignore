@@ -19,11 +19,9 @@ docs
 *.md
 LICENSE
 
-# Build artifacts produced outside the container
+# Build artifact produced outside the container
 /tether
-/tetherd
 dist/
-*.exe
 *.test
 *-go-tmp-umask
 *.go.[0-9]*

@@ -1,56 +1,19 @@
-package main
+package daemon
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"flag"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
 	"github.com/praneethravuri/tether/internal/store"
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
-
-func TestParseArgs(t *testing.T) {
-	cases := []struct {
-		name    string
-		args    []string
-		wantErr error // checked with errors.Is; nil means "some error"
-		wantOK  bool
-	}{
-		{name: "no arguments", args: nil, wantOK: true},
-		{name: "help flag", args: []string{"-h"}, wantErr: flag.ErrHelp},
-		{name: "long help flag", args: []string{"--help"}, wantErr: flag.ErrHelp},
-		{name: "unrecognized flag", args: []string{"-x"}},
-		{name: "stray positional argument", args: []string{"foo"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := parseArgs(tc.args)
-			switch {
-			case tc.wantOK:
-				if err != nil {
-					t.Fatalf("parseArgs(%v) = %v, want nil", tc.args, err)
-				}
-			case tc.wantErr != nil:
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("parseArgs(%v) = %v, want %v", tc.args, err, tc.wantErr)
-				}
-			default:
-				if err == nil {
-					t.Fatalf("parseArgs(%v) = nil, want an error", tc.args)
-				}
-			}
-		})
-	}
-}
 
 func TestDaemonIsLive_NoSocketAtAll(t *testing.T) {
 	dir := shortTempDir(t)
@@ -64,8 +27,8 @@ func TestDaemonIsLive_StaleSocketFile(t *testing.T) {
 	path := filepath.Join(dir, "s")
 
 	// A crashed daemon leaves a socket file behind that nothing is bound to.
-	// It must not be mistaken for a running daemon, or tetherd could never
-	// restart after a hard kill.
+	// It must not be mistaken for a running daemon, or the daemon could
+	// never restart after a hard kill.
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -96,16 +59,16 @@ func TestDaemonIsLive_BoundSocket(t *testing.T) {
 }
 
 func TestStartupErrorMessageIsPlain(t *testing.T) {
-	err := &startupError{"socket /tmp/sock is already served by a running tetherd"}
-	if err.Error() != "socket /tmp/sock is already served by a running tetherd" {
+	err := &startupError{"socket /tmp/sock is already served by a running daemon"}
+	if err.Error() != "socket /tmp/sock is already served by a running daemon" {
 		t.Fatalf("Error() = %q", err.Error())
 	}
 }
 
-// TestEndToEndOverRealSocket wires the daemon up the way main does -- open the
+// TestEndToEndOverRealSocket wires the daemon up the way Run does -- open the
 // store, bind the socket, serve, cancel -- and drives a full agent lifecycle
-// across it. It is the smoke test that the wiring in run() is correct even
-// though run() itself resolves paths from the environment.
+// across it. It is the smoke test that the wiring in Run is correct even
+// though Run itself resolves paths from the environment.
 func TestEndToEndOverRealSocket(t *testing.T) {
 	dir := shortTempDir(t)
 
@@ -121,16 +84,12 @@ func TestEndToEndOverRealSocket(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 
-	// POSIX permission bits aren't enforced on Windows (see socket_windows.go);
-	// the directory ACL is the control there instead.
-	if runtime.GOOS != "windows" {
-		info, err := os.Stat(sock)
-		if err != nil {
-			t.Fatalf("stat socket: %v", err)
-		}
-		if perm := info.Mode().Perm(); perm&0o077 != 0 {
-			t.Fatalf("socket mode = %o, want no group/other access", perm)
-		}
+	info, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Fatalf("socket mode = %o, want no group/other access", perm)
 	}
 
 	cfg := DefaultConfig()

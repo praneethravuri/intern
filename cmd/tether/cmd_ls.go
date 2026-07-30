@@ -10,7 +10,7 @@ import (
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
-const lsLong = `List the agents registered with tetherd, and what each one is doing.
+const lsLong = `List the agents registered with the daemon, and what each one is doing.
 
 Only this workspace is shown unless --all is given. NAME is the full address:
 copy it straight into ` + "`tether send --to`" + `.
@@ -27,10 +27,9 @@ func newLsCmd() *cobra.Command {
 	var opts lsOptions
 
 	cmd := &cobra.Command{
-		Use:     "ls",
-		Aliases: []string{"who"},
-		Short:   "List registered agents and what each is doing",
-		Long:    lsLong,
+		Use:   "ls",
+		Short: "List registered agents and what each is doing",
+		Long:  lsLong,
 		Example: "  tether ls\n" +
 			"  tether ls --all\n" +
 			"  tether ls --json",
@@ -60,7 +59,7 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 	}
 
 	var res protocol.WhoResult
-	if err := call(protocol.MethodWho,
+	if err := call(protocol.MethodLs,
 		protocol.WhoParams{Workspace: workspace, All: opts.all}, &res); err != nil {
 		return err
 	}

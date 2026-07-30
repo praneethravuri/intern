@@ -81,9 +81,9 @@ func TestRuntimeFailuresDoNotPrintUsage(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	noDaemon(t)
 
-	r := run(t, newRootCmd(), "", "who")
+	r := run(t, newRootCmd(), "", "ls")
 	if r.err == nil {
-		t.Fatal("who succeeded with no daemon")
+		t.Fatal("ls succeeded with no daemon")
 	}
 	requireNotContains(t, r.stdout, "Usage:", "stdout")
 	requireNotContains(t, r.stderr, "Usage:", "stderr")
@@ -94,42 +94,15 @@ func TestRootRoutesToSubcommands(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	d := newFakeDaemon(t, okHandler(protocol.SendResult{MessageID: "01KROUTED"}))
 
-	r := mustRun(t, newRootCmd(), "", "send", "--to", "backend", "hello")
+	r := mustRun(t, newRootCmd(), "", "send", "backend", "hello")
 
 	d.registerThen(t, protocol.MethodSend)
 	requireContains(t, r.stdout, "01KROUTED", "stdout")
 }
 
-// TestBareRootRunsLs is the headline change for bare `tether`: with no
-// subcommand it now runs the same fleet listing as `tether ls`, rather than
-// printing help. -h/--help still works (TestRootHelpListsEveryCommand
-// exercises that explicitly, via cobra's own flag interception, which runs
-// before RunE ever gets a chance).
-func TestBareRootRunsLs(t *testing.T) {
-	setIdentity(t, "frontend", "storefront")
-	d := newFakeDaemon(t, okHandler(agents()))
-
-	bare := mustRun(t, newRootCmd(), "")
-
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodWho))
-	if params.Workspace != "storefront" {
-		t.Fatalf("bare tether params = %+v, want workspace storefront", params)
-	}
-	requireContains(t, bare.stdout, "frontend@storefront", "stdout")
-
-	// Same code path as an explicit `tether ls`.
-	setIdentity(t, "frontend", "storefront")
-	newFakeDaemon(t, okHandler(agents()))
-	ls := mustRun(t, newLsCmd(), "")
-	if bare.stdout != ls.stdout {
-		t.Fatalf("bare tether output differs from `tether ls`:\nbare:\n%s\nls:\n%s", bare.stdout, ls.stdout)
-	}
-}
-
-// TestUnknownCommandIsRejected is the flip side of TestBareRootRunsLs: since
-// root is now runnable, root.Args = cobra.NoArgs is what makes an unrecognised
-// subcommand fail loudly instead of silently running `ls` with the typo
-// treated as an ignored positional argument. This is cobra's own out-of-the-box
+// TestUnknownCommandIsRejected: root.Args = cobra.NoArgs is what makes an
+// unrecognised subcommand fail loudly instead of being treated as an ignored
+// positional argument to root's own RunE. This is cobra's own out-of-the-box
 // "unknown command" behaviour for a NoArgs root with subcommands, verified
 // here rather than assumed.
 func TestUnknownCommandIsRejected(t *testing.T) {

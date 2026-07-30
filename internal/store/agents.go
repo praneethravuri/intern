@@ -108,6 +108,77 @@ func (s *Store) GetAgent(ctx context.Context, ws, name string) (Agent, error) {
 	return a, nil
 }
 
+// FindNameBySession returns the name session already holds in ws, so a
+// caller with no chosen name can resolve to its existing registration
+// instead of minting a new one.
+func (s *Store) FindNameBySession(ctx context.Context, ws, session string) (string, error) {
+	var name string
+	err := s.r.QueryRowContext(ctx, qFindNameBySession, ws, session).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("%w: no agent in %s for this session", ErrNoSuchAgent, ws)
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: find name by session: %w", err)
+	}
+	return name, nil
+}
+
+// Rename changes the name of the agent a.SessionID already holds in
+// a.Workspace to a.Name, refreshing its other fields the same way Register
+// would, and moves its pending mail's to_name along in the same transaction
+// -- so no orphan row is left holding mail nobody will read. It returns the
+// name the session held before the rename. ErrNoSuchAgent means the session
+// holds nothing to rename; ErrNameTaken means a different session already
+// holds a.Name.
+func (s *Store) Rename(ctx context.Context, a Agent) (oldName string, err error) {
+	if err := normalize(&a); err != nil {
+		return "", err
+	}
+	if a.SessionID == "" {
+		return "", fmt.Errorf("%w: rename needs a session id", ErrBadAddress)
+	}
+
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("store: rename: %w", err)
+	}
+	defer s.rollback(tx)
+
+	if err := tx.QueryRowContext(ctx, qFindNameBySession, a.Workspace, a.SessionID).Scan(&oldName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("%w: no agent in %s for this session", ErrNoSuchAgent, a.Workspace)
+		}
+		return "", fmt.Errorf("store: rename: find: %w", err)
+	}
+
+	nowMS := s.nowMS()
+	res, err := tx.ExecContext(ctx, qRenameAgent,
+		a.Name, a.Harness, a.Cwd, a.PID, a.PIDStart, nowMS,
+		a.Workspace, a.SessionID,
+		a.Workspace, a.Name, a.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("store: rename: update agent: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("store: rename: update agent: %w", err)
+	}
+	if n == 0 {
+		return "", fmt.Errorf("%w: %s@%s", ErrNameTaken, a.Name, a.Workspace)
+	}
+
+	if oldName != a.Name {
+		if _, err := tx.ExecContext(ctx, qRenameMessages, a.Name, a.Workspace, oldName); err != nil {
+			return "", fmt.Errorf("store: rename: update messages: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("store: rename: commit: %w", err)
+	}
+	return oldName, nil
+}
+
 // ListAgents returns agents ordered by workspace then name. An empty ws means
 // every workspace; a staleAfter of zero or less disables the staleness filter.
 func (s *Store) ListAgents(ctx context.Context, ws string, staleAfter time.Duration) ([]Agent, error) {

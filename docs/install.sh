@@ -1,10 +1,10 @@
 #!/bin/sh
-# Installs tether and tetherd for macOS/Linux. No sudo, ever.
+# Installs tether for macOS/Linux. No sudo, ever.
 #
 #   curl -fsSL https://praneethravuri.github.io/tether/install.sh | sh
 #
 # Env overrides:
-#   TETHER_VERSION      version tag to install, e.g. v0.1.0 (default: latest)
+#   TETHER_VERSION      version tag to install, e.g. v0.2.0 (default: latest)
 #   TETHER_INSTALL_DIR  where to put the binaries (default: ~/.local/bin)
 #   TETHER_BASE_URL     override the GitHub releases base URL (testing only)
 set -e
@@ -63,15 +63,20 @@ main() {
 		exit 1
 	fi
 
-	for bin in tether tetherd; do
-		mv "${tmp_dir}/${bin}" "${install_dir}/${bin}"
-		chmod 0755 "${install_dir}/${bin}"
-		# Best-effort: these binaries are cross-compiled on Linux runners, so
-		# they carry no Apple notarization ticket.
-		if [ "$os" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
-			xattr -d com.apple.quarantine "${install_dir}/${bin}" 2>/dev/null || true
-		fi
-	done
+	mv "${tmp_dir}/tether" "${install_dir}/tether"
+	chmod 0755 "${install_dir}/tether"
+	# Best-effort: this binary is cross-compiled on Linux runners, so it
+	# carries no Apple notarization ticket.
+	if [ "$os" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
+		xattr -d com.apple.quarantine "${install_dir}/tether" 2>/dev/null || true
+	fi
+
+	# tetherd was a separate binary before v0.2.0; tether now serves both
+	# roles, so a leftover tetherd on PATH is stale and would only confuse.
+	if [ -e "${install_dir}/tetherd" ]; then
+		rm -f "${install_dir}/tetherd"
+		echo "tether: removed the old separate tetherd binary from ${install_dir}"
+	fi
 
 	echo "tether: installed $("${install_dir}/tether" version) to ${install_dir}"
 
@@ -86,11 +91,12 @@ main() {
 
 	if pgrep -x tetherd >/dev/null 2>&1; then
 		echo
-		echo "A tetherd is already running -- restart it to pick up this version."
+		echo "A tetherd from an older tether is still running -- kill it and run"
+		echo "'tether' (no arguments) to start the daemon this version ships."
 	fi
 
 	echo
-	echo "Next: tetherd &"
+	echo "Next: tether &"
 }
 
 # fetch <url> <output path>

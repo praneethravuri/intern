@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,10 +16,21 @@ import (
 	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
-// The CLI cannot import cmd/tetherd, so these tests stand a fake daemon up on
+// The CLI cannot import internal/daemon, so these tests stand a fake daemon up on
 // a unix socket and point the CLI at it with TETHER_SOCK. That exercises the
 // real dial/encode/decode path while letting a test say exactly what comes
 // back, including responses no real daemon would ever send.
+
+// TestMain disables auto-start for the whole package: without this, any
+// "no daemon" test would exec the go test binary itself as if it were
+// tether. A test that wants to exercise auto-start overrides spawnDaemon
+// locally via restoreSpawn.
+func TestMain(m *testing.M) {
+	spawnDaemon = func(string) error {
+		return errors.New("auto-start disabled in tests")
+	}
+	os.Exit(m.Run())
+}
 
 // recorded is one request the fake daemon received.
 type recorded struct {
@@ -215,11 +227,19 @@ func decodeParams[T any](t *testing.T, r recorded) T {
 	return v
 }
 
+// testAsIdentity is what setIdentity configures; run/mustRun apply it as
+// --as on any command that has the flag, so the ~100 existing call sites
+// that predate per-session identity resolution don't all need --as added
+// to their args now that $TETHER_NAME is gone.
+var testAsIdentity string
+
 // setIdentity makes name and workspace resolution deterministic, so tests do
 // not depend on where the checkout lives or on the developer's environment.
 func setIdentity(t *testing.T, name, workspace string) {
 	t.Helper()
-	t.Setenv(envName, name)
+	prev := testAsIdentity
+	testAsIdentity = name
+	t.Cleanup(func() { testAsIdentity = prev })
 	t.Setenv("TETHER_WORKSPACE", workspace)
 }
 
@@ -234,9 +254,17 @@ type runOut struct {
 func (r runOut) exitCode() int { return exitCodeFor(r.err) }
 
 // run executes cmd with args and captured streams. stdin is what the command
-// reads from, which matters for `send --body-file -`.
+// reads from, which matters for `send --body-file -`. If setIdentity
+// configured a name and cmd has an --as flag, it is applied here -- an
+// explicit --as in args still wins, since Execute parses args afterward.
 func run(t *testing.T, cmd *cobra.Command, stdin string, args ...string) runOut {
 	t.Helper()
+
+	if testAsIdentity != "" {
+		if f := cmd.Flags().Lookup("as"); f != nil {
+			_ = f.Value.Set(testAsIdentity)
+		}
+	}
 
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)

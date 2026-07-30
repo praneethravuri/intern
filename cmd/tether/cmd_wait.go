@@ -25,8 +25,8 @@ on it:
 
   if tether wait --timeout 2m; then tether inbox; fi
 
-This is the polling-free way to idle: agents whose harness tetherd cannot wake
-(the "universal" tier) should sit in wait rather than calling inbox in a loop.`
+This is the polling-free way to idle: agents whose harness the daemon cannot
+wake (the "universal" tier) should sit in wait rather than calling inbox in a loop.`
 
 type waitOptions struct {
 	identityFlags
@@ -71,7 +71,8 @@ func runWait(cmd *cobra.Command, opts *waitOptions) error {
 		return err
 	}
 
-	if err := ensureRegistered(name, workspace); err != nil {
+	name, err = ensureRegistered(name, workspace)
+	if err != nil {
 		return err
 	}
 	_, session := currentSession()
@@ -122,9 +123,21 @@ func waitUpTo(name, workspace, session string, total time.Duration) (protocol.Wa
 		}
 
 		var res protocol.WaitResult
-		if err := callTimeout(protocol.MethodWait, params, &res,
-			waitCallTimeout(remaining)); err != nil {
-			return protocol.WaitResult{}, err
+		err := callTimeout(protocol.MethodWait, params, &res, waitCallTimeout(remaining))
+		if err != nil {
+			// A transport failure (the daemon was killed while this call was
+			// parked, say) is worth reconnecting for -- callTimeout auto-starts
+			// on the next dial if needed. A daemon-side error (bad request,
+			// conflict) means something is genuinely wrong, so that still
+			// returns immediately.
+			if _, fromDaemon := daemonCode(err); fromDaemon {
+				return protocol.WaitResult{}, err
+			}
+			remaining = time.Until(deadline)
+			if remaining <= 0 {
+				return protocol.WaitResult{}, err
+			}
+			continue
 		}
 
 		if !res.TimedOut || res.Pending > 0 {

@@ -279,6 +279,132 @@ func TestGetAgentUnknown(t *testing.T) {
 	}
 }
 
+func TestFindNameBySession(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", SessionID: "sess-1", Cwd: "/a"})
+
+	got, err := s.FindNameBySession(ctx, "ws", "sess-1")
+	if err != nil {
+		t.Fatalf("FindNameBySession: %v", err)
+	}
+	if got != "alice" {
+		t.Fatalf("FindNameBySession = %q, want alice", got)
+	}
+}
+
+func TestFindNameBySessionUnknown(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.FindNameBySession(context.Background(), "ws", "sess-nope"); !errors.Is(err, ErrNoSuchAgent) {
+		t.Fatalf("FindNameBySession(unknown session) = %v, want ErrNoSuchAgent", err)
+	}
+}
+
+func TestRenameMovesNameAndPendingMail(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a"})
+	mustSend(t, s, Message{FromName: "backend", FromWS: "ws", ToName: "frontend", ToWS: "ws", Body: "hi"})
+
+	oldName, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "frontend2", SessionID: "sess-1", Cwd: "/a2"})
+	if err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if oldName != "frontend" {
+		t.Fatalf("Rename returned old name %q, want frontend", oldName)
+	}
+
+	if _, err := s.GetAgent(ctx, "ws", "frontend"); !errors.Is(err, ErrNoSuchAgent) {
+		t.Fatalf("old name still exists after rename: %v", err)
+	}
+	got, err := s.GetAgent(ctx, "ws", "frontend2")
+	if err != nil {
+		t.Fatalf("GetAgent(new name): %v", err)
+	}
+	if got.Cwd != "/a2" {
+		t.Fatalf("rename did not refresh other fields: %+v", got)
+	}
+
+	msgs, _, err := s.Drain(ctx, "ws", "frontend2", 0)
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].Body != "hi" {
+		t.Fatalf("pending mail did not follow the rename: %+v", msgs)
+	}
+}
+
+func TestRenameOntoALiveNameConflicts(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a"})
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-2", Cwd: "/b"})
+
+	_, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-1", Cwd: "/a"})
+	if !errors.Is(err, ErrNameTaken) {
+		t.Fatalf("Rename onto a live name = %v, want ErrNameTaken", err)
+	}
+
+	// Neither row was touched by the rejected rename.
+	if _, err := s.GetAgent(ctx, "ws", "frontend"); err != nil {
+		t.Fatalf("frontend disappeared after a rejected rename: %v", err)
+	}
+	got, err := s.GetAgent(ctx, "ws", "backend")
+	if err != nil || got.SessionID != "sess-2" {
+		t.Fatalf("backend was mutated by a rejected rename: %+v, err=%v", got, err)
+	}
+}
+
+func TestRenameNoExistingSessionIsNoSuchAgent(t *testing.T) {
+	s := newStore(t)
+	_, err := s.Rename(context.Background(), Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-ghost", Cwd: "/a"})
+	if !errors.Is(err, ErrNoSuchAgent) {
+		t.Fatalf("Rename with no existing session = %v, want ErrNoSuchAgent", err)
+	}
+}
+
+func TestRenameToTheSameNameIsANoOpRefresh(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a"})
+
+	oldName, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a2"})
+	if err != nil {
+		t.Fatalf("Rename to the same name: %v", err)
+	}
+	if oldName != "frontend" {
+		t.Fatalf("oldName = %q, want frontend", oldName)
+	}
+	got, err := s.GetAgent(ctx, "ws", "frontend")
+	if err != nil || got.Cwd != "/a2" {
+		t.Fatalf("same-name rename did not refresh fields: %+v, err=%v", got, err)
+	}
+}
+
+// TestStats proves doctor's database health line reflects actual row counts
+// across all three tables, not just the pending-mail view most other
+// queries filter down to.
+func TestStats(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", Cwd: "/a"})
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "bob", Cwd: "/b"})
+	mustSend(t, s, Message{FromName: "alice", FromWS: "ws", ToName: "bob", ToWS: "ws", Body: "hi"})
+	if err := s.Observe(ctx, Observation{Workspace: "ws", Name: "alice", Kind: "tool"}); err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+
+	got, err := s.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	want := Stats{Messages: 1, Agents: 2, Observations: 1}
+	if got != want {
+		t.Fatalf("Stats = %+v, want %+v", got, want)
+	}
+}
+
 func TestListAgentsFiltersByWorkspaceAndStaleness(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

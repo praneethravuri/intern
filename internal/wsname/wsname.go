@@ -51,7 +51,6 @@ func findGitRoot(dir string) (string, bool) {
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached the filesystem root (or a volume root on Windows).
 			return "", false
 		}
 		dir = parent

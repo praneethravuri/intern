@@ -1,6 +1,6 @@
-//go:build !darwin && !linux && !windows
+//go:build !darwin && !linux
 
-package main
+package daemon
 
 import "net"
 

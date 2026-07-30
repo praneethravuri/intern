@@ -1,6 +1,18 @@
-package main
+package daemon
 
-import "strings"
+import (
+	"fmt"
+	"hash/fnv"
+	"strings"
+)
+
+// mintName synthesises "<harness>-<hex4>" from a hash of session, for a
+// register with no chosen name and no existing registration to resolve to.
+func mintName(harness, session string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(session))
+	return fmt.Sprintf("%s-%04x", harness, h.Sum32()&0xffff)
+}
 
 // suggest returns the closest name in candidates to target (edit distance
 // <=2, or one is a prefix of the other), or "" if nothing is close enough.
