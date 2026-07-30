@@ -44,7 +44,7 @@ func TestParamsAndResults_RoundTrip(t *testing.T) {
 		{"MessageView", MessageView{ID: "m1", ThreadID: "t1", From: "a@w", To: "b@w", Kind: "note", Body: "hi", CreatedAt: "2026-07-28T09:00:00Z"}, func() any { return new(MessageView) }},
 		{"WaitParams", WaitParams{Name: "alice", Workspace: "tether", Session: "sess-1", TimeoutMS: 30000}, func() any { return new(WaitParams) }},
 		{"WaitResult", WaitResult{Pending: 0, TimedOut: true}, func() any { return new(WaitResult) }},
-		{"WhoParams", WhoParams{Workspace: "tether", All: true}, func() any { return new(WhoParams) }},
+		{"WhoParams", WhoParams{Workspace: "tether"}, func() any { return new(WhoParams) }},
 		{"AgentView", agent, func() any { return new(AgentView) }},
 		{"WhoResult", WhoResult{Agents: []AgentView{agent}}, func() any { return new(WhoResult) }},
 		{"StatusParams", StatusParams{Name: "alice", Workspace: "tether"}, func() any { return new(StatusParams) }},
@@ -81,7 +81,6 @@ func TestJSONTags_AreSnakeCase(t *testing.T) {
 		WaitParams{}, WaitResult{},
 		WhoParams{}, WhoResult{}, AgentView{},
 		StatusParams{}, StatusResult{},
-		StatsResult{},
 		Request{}, Response{}, Error{},
 	}
 
@@ -217,9 +216,8 @@ func TestMethodConstants(t *testing.T) {
 		MethodWait:     "wait",
 		MethodLs:       "ls",
 		MethodExplain:  "explain",
-		MethodStats:    "stats",
 	}
-	if len(want) != 7 {
+	if len(want) != 6 {
 		t.Fatalf("method constants collide: got %d distinct values, want 6", len(want))
 	}
 	for got, expected := range want {
