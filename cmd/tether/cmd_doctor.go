@@ -52,7 +52,7 @@ func newDoctorCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check the daemon, this workspace, and every agent's wake tier",
+		Short: "Check the daemon, this workspace, and every agent here",
 		Long:  doctorLong,
 		Example: "  tether doctor\n" +
 			"  tether doctor --json",

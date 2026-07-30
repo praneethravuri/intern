@@ -1,5 +1,12 @@
 # Security Policy
 
+## Threat Model
+
+- The trust boundary is a 0600 socket inside a 0700 directory.
+- `SO_PEERCRED` is advisory logging only, not access control.
+- Any process running as the same uid is trusted.
+- `--as` is a name-collision guard, not authentication.
+
 ## Supported Versions
 
 Tether is currently in active development. Security updates are provided for the latest release branch.
