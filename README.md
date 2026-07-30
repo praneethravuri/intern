@@ -13,9 +13,6 @@ Every coding agent runs in a silo — Claude Code can't see your Codex session, 
 
 Nothing wraps how you launch your agents. You keep running `claude`, `codex`, `aider`, and everything else exactly as you do now; tether is just a command they can call.
 
-> [!TIP]
-> No setup step. `tether register frontend` and you're addressable — the daemon starts itself the first time anything talks to it.
-
 ## Table of Contents
 
 - [Install](#install)
