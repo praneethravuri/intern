@@ -13,68 +13,6 @@ import (
 	"github.com/praneethravuri/tether/internal/protocol"
 )
 
-func TestDaemonLogPath_UnderHomeTetherDir(t *testing.T) {
-	t.Setenv("HOME", "/home/agent")
-	got, err := daemonLogPath()
-	if err != nil {
-		t.Fatalf("daemonLogPath: %v", err)
-	}
-	if want := filepath.Join("/home/agent", ".tether", "daemon.log"); got != want {
-		t.Fatalf("daemonLogPath = %q, want %q", got, want)
-	}
-}
-
-func TestOpenDaemonLog_AppendsWhenSmall(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "daemon.log")
-	if err := os.WriteFile(path, []byte("existing\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	f, err := openDaemonLog(path)
-	if err != nil {
-		t.Fatalf("openDaemonLog: %v", err)
-	}
-	defer func() { _ = f.Close() }()
-
-	if _, err := f.WriteString("more\n"); err != nil {
-		t.Fatalf("WriteString: %v", err)
-	}
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(got) != "existing\nmore\n" {
-		t.Fatalf("log content = %q, want the old content preserved with the new appended", got)
-	}
-}
-
-func TestOpenDaemonLog_TruncatesWhenOversize(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "daemon.log")
-	oversized := make([]byte, daemonLogMaxBytes+1)
-	if err := os.WriteFile(path, oversized, 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	f, err := openDaemonLog(path)
-	if err != nil {
-		t.Fatalf("openDaemonLog: %v", err)
-	}
-	defer func() { _ = f.Close() }()
-
-	if _, err := f.WriteString("fresh\n"); err != nil {
-		t.Fatalf("WriteString: %v", err)
-	}
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(got) != "fresh\n" {
-		t.Fatalf("log was not truncated: got %d bytes not starting fresh", len(got))
-	}
-}
-
 // shortSockDir is a temp dir short enough for a unix socket path -- unlike
 // t.TempDir(), which embeds the (long) test name and can exceed the
 // platform's ~104-byte sun_path limit.

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -143,6 +144,28 @@ func TestSweepOnce_SweepsDeadMessages(t *testing.T) {
 	mu.Unlock()
 	if !strings.Contains(got, "swept 1 dead message") {
 		t.Errorf("sweepOnce did not report sweeping the dead message: %q", got)
+	}
+}
+
+// TestSweepOnce_RotatesAnOversizedLog is 6.18's "periodic size check in the
+// daemon loop" half: the log doesn't wait for the next daemon restart to
+// rotate, the existing sweep cycle does it.
+func TestSweepOnce_RotatesAnOversizedLog(t *testing.T) {
+	dir := shortTempDir(t)
+	logPath := filepath.Join(dir, "daemon.log")
+	if err := os.WriteFile(logPath, make([]byte, logMaxBytes+1000), 0o600); err != nil {
+		t.Fatalf("seed oversized log: %v", err)
+	}
+
+	ts := newTestServer(t, func(c *Config) { c.LogPath = logPath })
+	ts.srv.sweepOnce(context.Background())
+
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if info.Size() > logMaxBytes {
+		t.Fatalf("log is %d bytes after sweepOnce, want at most %d", info.Size(), logMaxBytes)
 	}
 }
 

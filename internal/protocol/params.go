@@ -51,6 +51,11 @@ type SendResult struct {
 	RecipientState string   `json:"recipient_state,omitempty"`
 	Recipients     []string `json:"recipients,omitempty"`
 	Delivered      int      `json:"delivered,omitempty"`
+	// Failed is how many of a broadcast's eligible recipients could not be
+	// delivered to. A broadcast with every eligible recipient failing does
+	// not reach this field -- it fails the request outright instead of
+	// reporting an indistinguishable-from-empty Delivered: 0.
+	Failed int `json:"failed,omitempty"`
 }
 
 // InboxParams is the payload for MethodInbox.

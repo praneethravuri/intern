@@ -40,6 +40,15 @@ const (
 	defaultInboxLimit = 50
 	maxInboxLimit     = 500
 	maxClientMsgLen   = 256
+
+	// defaultMaxConns bounds concurrent connections. Generous for a local,
+	// single-user daemon -- this guards against runaway reconnect loops, not
+	// real traffic.
+	defaultMaxConns = 256
+	// defaultIdleTimeout closes a connection that sits with no request in
+	// flight this long. A production CLI call is one request then close, so
+	// this only ever catches an abandoned or misbehaving connection.
+	defaultIdleTimeout = 10 * time.Minute
 )
 
 // errRequestTooLarge is returned by limitedReader once a single request has
@@ -72,8 +81,18 @@ type Config struct {
 	// one; MaxWait caps what a caller may ask for.
 	DefaultWait time.Duration
 	MaxWait     time.Duration
+	// MaxConns bounds concurrent connections; acceptLoop blocks past this
+	// rather than spawning an unbounded goroutine per accept.
+	MaxConns int
+	// IdleTimeout bounds how long a connection may sit between requests
+	// before it's closed. Reset before every read, so it never cuts off a
+	// wait already in progress -- only the gap before the next request.
+	IdleTimeout time.Duration
 	// Logger receives daemon logs. Nil means log.Default().
 	Logger *log.Logger
+	// LogPath, if set, is checked and rotated in place on every sweep once
+	// it grows past logMaxBytes. Empty means no log rotation runs.
+	LogPath string
 }
 
 // DefaultConfig returns the production configuration.
@@ -88,6 +107,8 @@ func DefaultConfig() Config {
 		MaxRequestBytes: defaultMaxRequestBytes,
 		DefaultWait:     defaultWaitTimeout,
 		MaxWait:         maxWaitPerRequest,
+		MaxConns:        defaultMaxConns,
+		IdleTimeout:     defaultIdleTimeout,
 	}
 }
 
@@ -124,6 +145,12 @@ func (c Config) withDefaults() Config {
 	if c.DefaultWait > c.MaxWait {
 		c.DefaultWait = c.MaxWait
 	}
+	if c.MaxConns <= 0 {
+		c.MaxConns = d.MaxConns
+	}
+	if c.IdleTimeout <= 0 {
+		c.IdleTimeout = d.IdleTimeout
+	}
 	if c.Logger == nil {
 		c.Logger = log.Default()
 	}
@@ -151,18 +178,29 @@ type Server struct {
 	// errSeq numbers internal-error references so a user-visible 500 can be
 	// matched to a log line without leaking the underlying error text.
 	errSeq atomic.Uint64
+
+	// connSlots bounds concurrent connections: acceptLoop blocks acquiring a
+	// slot past MaxConns instead of spawning an unbounded goroutine per accept.
+	connSlots chan struct{}
 }
+
+// ErrHandlersAbandoned is joined into Serve's returned error when the
+// shutdown timeout elapsed with connection handlers still in flight, so a
+// caller knows not to close resources (like the store) those handlers might
+// still be using.
+var ErrHandlersAbandoned = errors.New("daemon: shut down with handlers still in flight")
 
 // NewServer builds a Server. st must be non-nil and stays owned by the caller:
 // Serve never closes it.
 func NewServer(st *store.Store, cfg Config) *Server {
 	c := cfg.withDefaults()
 	return &Server{
-		store:   st,
-		waiters: NewWaiters(),
-		cfg:     c,
-		log:     c.Logger,
-		conns:   make(map[net.Conn]struct{}),
+		store:     st,
+		waiters:   NewWaiters(),
+		cfg:       c,
+		log:       c.Logger,
+		conns:     make(map[net.Conn]struct{}),
+		connSlots: make(chan struct{}, c.MaxConns),
 	}
 }
 
@@ -205,8 +243,11 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	close(stopped)
 	cancel()
-	s.awaitConns()
+	cleanShutdown := s.awaitConns()
 	bg.Wait()
+	if !cleanShutdown {
+		err = errors.Join(err, ErrHandlersAbandoned)
+	}
 	return err
 }
 
@@ -235,21 +276,31 @@ func (s *Server) acceptLoop(ctx context.Context, ln net.Listener) error {
 		}
 		fails = 0
 
+		select { // bounded concurrency: block rather than spawn unboundedly
+		case s.connSlots <- struct{}{}:
+		case <-ctx.Done():
+			_ = conn.Close()
+			return nil
+		}
+
 		if !s.trackConn(conn) {
+			<-s.connSlots
 			_ = conn.Close() // shutting down
 			continue
 		}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
+			defer func() { <-s.connSlots }()
 			s.handleConn(ctx, conn)
 		}()
 	}
 }
 
 // awaitConns waits for connection goroutines, bounded by ShutdownTimeout so a
-// wedged client can never hang the daemon's exit.
-func (s *Server) awaitConns() {
+// wedged client can never hang the daemon's exit. Reports whether every
+// handler finished cleanly within that budget.
+func (s *Server) awaitConns() bool {
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -260,8 +311,10 @@ func (s *Server) awaitConns() {
 	defer t.Stop()
 	select {
 	case <-done:
+		return true
 	case <-t.C:
 		s.log.Printf("shutdown timeout: abandoning connections still in flight")
+		return false
 	}
 }
 
@@ -302,6 +355,12 @@ func (s *Server) sweepOnce(ctx context.Context) {
 	}
 
 	s.sweepDeadAgents(ctx)
+
+	if s.cfg.LogPath != "" {
+		if err := rotateIfLarge(s.cfg.LogPath); err != nil {
+			s.log.Printf("log rotation failed: %v", err)
+		}
+	}
 }
 
 // sweepDeadAgents deletes agent rows both stale past DeadAfter and provably
@@ -404,11 +463,17 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	for {
 		lr.reset(s.cfg.MaxRequestBytes) // budget is per request, not per connection
 
+		// Bounds the gap before the *next* request, not any handler already
+		// dispatched: nothing here reads from conn again until this Decode
+		// returns, so a long wait in dispatch is never cut short by this.
+		_ = conn.SetReadDeadline(time.Now().Add(s.cfg.IdleTimeout))
+
 		var req protocol.Request
 		if err := dec.Decode(&req); err != nil {
 			s.reportDecodeError(conn, enc, err, pid)
 			return
 		}
+		_ = conn.SetReadDeadline(time.Time{})
 
 		resp := s.dispatch(ctx, req, pid)
 		if err := enc.Encode(resp); err != nil {
@@ -423,8 +488,12 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 // reportDecodeError answers a failed Decode as best it can and always ends the
 // connection: a JSON stream cannot be resynchronised after a framing error.
 func (s *Server) reportDecodeError(conn net.Conn, enc *json.Encoder, err error, pid int) {
+	var netErr net.Error
 	switch {
 	case errors.Is(err, io.EOF), isDisconnect(err):
+		return
+	case errors.As(err, &netErr) && netErr.Timeout():
+		s.log.Printf("closing idle connection from pid %d", pid)
 		return
 	case errors.Is(err, errRequestTooLarge):
 		s.log.Printf("request from pid %d exceeded %d bytes", pid, s.cfg.MaxRequestBytes)
@@ -578,7 +647,7 @@ func (s *Server) handleRegister(ctx context.Context, req protocol.Request, peerP
 
 	var created, renamed bool
 	if existingName != "" && existingName != name {
-		if _, err := s.store.Rename(ctx, a); err != nil {
+		if err := s.renameOrReclaim(ctx, a); err != nil {
 			if errors.Is(err, store.ErrNameTaken) {
 				err = s.withNameSuggestion(ctx, err, ws, name)
 			}
@@ -656,8 +725,10 @@ func (s *Server) firstFreeSuffixed(ctx context.Context, ws, base string) string 
 }
 
 // registerOrReclaim performs the guarded register, and when the name is held
-// by a provably dead session, retries immediately with a forced stale cutoff
-// instead of waiting out StaleAfter.
+// by a provably dead session, reclaims it via a compare-and-swap on the
+// incumbent's exact pid/pid_start rather than a blind forced overwrite --
+// closing the race where a third party reclaims or revives the row between
+// the deadness check and the write (defect C5).
 //
 // The "did this row already exist" check is a separate read before the
 // guarded upsert, so Created can race and misreport under a same-instant
@@ -686,11 +757,43 @@ func (s *Server) registerOrReclaim(ctx context.Context, a store.Agent) (created 
 		return false, err // still alive: today's behaviour, a genuine conflict
 	}
 
-	forceCutoff := time.Now().Add(time.Millisecond) // incumbent is provably dead
-	if err := s.store.Register(ctx, a, forceCutoff); err != nil {
+	reclaimed, err := s.store.ReclaimAgent(ctx, a, incumbent.PID, incumbent.PIDStart)
+	if err != nil {
 		return false, err
 	}
+	if !reclaimed {
+		// The row moved between our checks: someone else raced in. Report
+		// the original conflict rather than silently doing nothing.
+		return false, fmt.Errorf("%w: %s", store.ErrNameTaken, a.Address())
+	}
 	return false, nil // reclaiming an existing row, not creating one
+}
+
+// renameOrReclaim is Rename with the same dead-holder escape hatch
+// registerOrReclaim has: a target name held by a session whose pid is
+// provably dead is renamable into immediately, not permanently blocked
+// until DeadAfter sweeps the row. Unlike registerOrReclaim's CAS, the forced
+// retry here is a blind overwrite -- narrower TOCTOU window than defect C5
+// (rename conflicts are rarer than fresh registers), accepted rather than
+// closed with the same compare-and-swap.
+func (s *Server) renameOrReclaim(ctx context.Context, a store.Agent) error {
+	staleCutoff := time.Now().Add(-s.cfg.StaleAfter)
+	_, err := s.store.Rename(ctx, a, staleCutoff)
+	if err == nil || !errors.Is(err, store.ErrNameTaken) {
+		return err
+	}
+
+	incumbent, getErr := s.store.GetAgent(ctx, a.Workspace, a.Name)
+	if getErr != nil {
+		return err // could not confirm the incumbent; report the original conflict
+	}
+	if proc.AliveAt(incumbent.PID, incumbent.PIDStart) {
+		return err // still alive: a genuine conflict
+	}
+
+	forceCutoff := time.Now().Add(time.Millisecond) // incumbent is provably dead
+	_, err = s.store.Rename(ctx, a, forceCutoff)
+	return err
 }
 
 // authenticate checks that session matches ws/name's stored session exactly
@@ -831,20 +934,31 @@ func (s *Server) handleBroadcastSend(ctx context.Context, req protocol.Request, 
 	}
 
 	addrs := make([]string, 0, len(agents))
+	eligible, failed := 0, 0
 	for _, a := range agents {
 		if a.Name == fromName && a.Workspace == fromWS {
 			continue // never deliver to the sender
 		}
+		eligible++
 		if _, err := s.sendOne(ctx, fromName, fromWS, a.Name, toWS, kind, body, replyTo); err != nil {
 			s.log.Printf("broadcast send %s@%s -> %s@%s failed: %v", fromName, fromWS, a.Name, toWS, err)
+			failed++
 			continue
 		}
 		addrs = append(addrs, addr(a.Name, toWS))
 	}
 
+	// A non-empty recipient set that entirely failed must not read like an
+	// empty workspace: Delivered: 0 means both today, indistinguishably.
+	if eligible > 0 && len(addrs) == 0 {
+		return s.fail(req.ID,
+			badRequest("broadcast to %d recipient(s) in %s failed entirely", eligible, toWS), "send")
+	}
+
 	s.touch(ctx, fromWS, fromName, "send", "")
-	s.log.Printf("broadcast send %s@%s -> */%s (%s, delivered=%d)", fromName, fromWS, toWS, kind, len(addrs))
-	return protocol.OK(req.ID, protocol.SendResult{Recipients: addrs, Delivered: len(addrs)})
+	s.log.Printf("broadcast send %s@%s -> */%s (%s, delivered=%d, failed=%d)",
+		fromName, fromWS, toWS, kind, len(addrs), failed)
+	return protocol.OK(req.ID, protocol.SendResult{Recipients: addrs, Delivered: len(addrs), Failed: failed})
 }
 
 // withSuggestion enriches a "no such agent" error with a did-you-mean hint.
