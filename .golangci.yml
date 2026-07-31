@@ -19,9 +19,13 @@ linters:
         linters:
           - gosec
         text: "G304"
-      # lock.go only opens/reads paths the daemon derives from its own
-      # socket path, never from untrusted input.
+      # lock.go and logging.go only open/read paths the daemon derives from
+      # its own socket/log path, never from untrusted input.
       - path: internal/daemon/lock\.go
+        linters:
+          - gosec
+        text: "G304"
+      - path: internal/daemon/logging(_test)?\.go
         linters:
           - gosec
         text: "G304"

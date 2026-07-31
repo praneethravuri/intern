@@ -32,6 +32,14 @@ ON CONFLICT(workspace, name) DO UPDATE SET
 WHERE agents.last_seen < ?
    OR (excluded.session_id <> '' AND agents.session_id = excluded.session_id)`
 
+	// qReclaimAgent is a compare-and-swap: it only touches the row if it
+	// still has exactly the pid/pid_start the caller last observed dead.
+	qReclaimAgent = `
+UPDATE agents SET
+    harness = ?, session_id = ?, cwd = ?, pid = ?, pid_start = ?,
+    registered_at = ?, last_seen = ?
+WHERE workspace = ? AND name = ? AND pid = ? AND pid_start = ?`
+
 	// last_note only overwrites when note is non-empty, so an implicit
 	// re-register (send/inbox/wait all touch this on every call) can't
 	// silently clear a note `register --doing` just set.
@@ -55,7 +63,9 @@ ORDER BY registered_at DESC LIMIT 1`
 
 	// qRenameAgent changes a session's own row to a new name and refreshes
 	// its other fields, unless a different session already holds that name
-	// (RowsAffected()==0 means the target name is taken).
+	// (RowsAffected()==0 means the target name is taken). A stale holder is
+	// evicted by qDeleteAgent first, in the same transaction, so this never
+	// has to reason about staleness itself.
 	qRenameAgent = `
 UPDATE agents SET
     name = ?, harness = ?, cwd = ?, pid = ?, pid_start = ?, last_seen = ?
@@ -64,6 +74,10 @@ WHERE workspace = ? AND session_id = ?
     SELECT 1 FROM agents AS other
     WHERE other.workspace = ? AND other.name = ? AND other.session_id <> ?
   )`
+
+	// qDeleteAgent removes exactly one agent row, used to evict a stale
+	// rename target before qRenameAgent runs, inside the same transaction.
+	qDeleteAgent = `DELETE FROM agents WHERE workspace = ? AND name = ?`
 
 	// qRenameMessages moves a renamed agent's pending mail along with it, so
 	// no message is left addressed to a name nobody holds any more.

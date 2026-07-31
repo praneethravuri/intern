@@ -167,6 +167,29 @@ func TestDBPath_ParentIsAFile(t *testing.T) {
 	}
 }
 
+func TestLogPath_DefaultUnderHome(t *testing.T) {
+	home := tempDir(t)
+	t.Setenv("HOME", home)
+
+	got, err := LogPath()
+	if err != nil {
+		t.Fatalf("LogPath() error = %v", err)
+	}
+
+	want := filepath.Join(home, ".tether", "daemon.log")
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLogPath_NoHome(t *testing.T) {
+	t.Setenv("HOME", "")
+
+	if _, err := LogPath(); err == nil {
+		t.Fatal("LogPath() with no HOME: want error, got nil")
+	}
+}
+
 func TestListen_ParentIsAFile(t *testing.T) {
 	dir := tempDir(t)
 	blocker := filepath.Join(dir, "blocker")

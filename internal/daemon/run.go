@@ -6,7 +6,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -55,28 +54,47 @@ func Run() error {
 		return &startupError{"socket " + sockPath + " is already served by a running daemon"}
 	}
 
+	logPath, err := protocol.LogPath()
+	if err != nil {
+		return err
+	}
+	logFile, err := openLog(logPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = logFile.Close() }()
+	logger := newJSONLogger(logFile)
+
 	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		return err
 	}
-	st.Logger = log.Default()
-	defer func() {
-		if err := st.Close(); err != nil {
-			log.Printf("closing store: %v", err)
-		}
-	}()
+	st.Logger = logger
 
 	ln, err := protocol.Listen(sockPath)
 	if err != nil {
+		_ = st.Close()
 		return err
 	}
 
-	log.Printf("listening on %s", sockPath)
-	log.Printf("database %s", dbPath)
+	logger.Printf("listening on %s", sockPath)
+	logger.Printf("database %s", dbPath)
 
-	err = NewServer(st, DefaultConfig()).Serve(ctx, ln)
-	log.Printf("stopped")
-	return err
+	cfg := DefaultConfig()
+	cfg.Logger = logger
+	cfg.LogPath = logPath
+	serveErr := NewServer(st, cfg).Serve(ctx, ln)
+	logger.Printf("stopped")
+
+	// A handler still using the store when Serve gave up on it must not
+	// race a close out from under it -- leave the store open; the process
+	// exiting reclaims it regardless.
+	if errors.Is(serveErr, ErrHandlersAbandoned) {
+		logger.Printf("handlers were still in flight at shutdown; leaving the store open rather than closing it under them")
+	} else if closeErr := st.Close(); closeErr != nil {
+		logger.Printf("closing store: %v", closeErr)
+	}
+	return serveErr
 }
 
 // daemonIsLive reports whether something is currently accepting on path. A

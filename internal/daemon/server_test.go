@@ -981,6 +981,37 @@ func TestSend_BroadcastWithOnlyTheSenderIsSuccessWithZeroDelivered(t *testing.T)
 	}
 }
 
+// TestSend_BroadcastEntirelyFailingIsAnError is drift item 6.12: a
+// broadcast with a non-empty eligible recipient set that every delivery
+// fails against must not read as success with Delivered: 0, which is
+// indistinguishable from an empty workspace. An oversized body fails every
+// recipient uniformly and deterministically, without needing to mock the
+// store.
+func TestSend_BroadcastEntirelyFailingIsAnError(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+	c.register("alice", "proj", "s1")
+	c.register("bob", "proj", "s2")
+	c.register("carol", "proj", "s3")
+
+	huge := strings.Repeat("x", (64<<10)+1)
+	e := c.mustFail(protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "*", ToWorkspace: "proj", Body: huge,
+	}, protocol.CodeBadRequest)
+	if !strings.Contains(e.Message, "2") {
+		t.Fatalf("error message %q does not name the failure count", e.Message)
+	}
+
+	// Neither recipient actually received anything.
+	if msgs := c.inboxPeek("bob"); len(msgs) != 0 {
+		t.Fatalf("bob's inbox = %+v, want empty", msgs)
+	}
+	if msgs := c.inboxPeek("carol"); len(msgs) != 0 {
+		t.Fatalf("carol's inbox = %+v, want empty", msgs)
+	}
+}
+
 // TestRegister_ReservedBroadcastNamesAreRejected is the trust-boundary half
 // of broadcast addressing: no agent may ever register as "*" or "all",
 // since those are reserved recipient markers, not real names.
@@ -1748,6 +1779,108 @@ func TestHandleWait_PanicStillReleasesTheWaiter(t *testing.T) {
 }
 
 // -- shutdown ---------------------------------------------------------------
+
+// TestAwaitConns_ReportsAbandonedHandlers is 6.9: awaitConns must tell its
+// caller when it gave up on a still-running handler, so Run knows not to
+// close the store out from under it.
+func TestAwaitConns_ReportsAbandonedHandlers(t *testing.T) {
+	ts := newTestServer(t, func(c *Config) { c.ShutdownTimeout = 20 * time.Millisecond })
+
+	ts.srv.wg.Add(1)
+	stuck := make(chan struct{})
+	go func() {
+		defer ts.srv.wg.Done()
+		<-stuck // simulates a handler that outlives the shutdown budget
+	}()
+	t.Cleanup(func() { close(stuck) })
+
+	if clean := ts.srv.awaitConns(); clean {
+		t.Fatal("awaitConns() = true, want false: a handler was still in flight")
+	}
+}
+
+// TestAwaitConns_ReportsCleanShutdown is the control case.
+func TestAwaitConns_ReportsCleanShutdown(t *testing.T) {
+	ts := newTestServer(t, func(c *Config) { c.ShutdownTimeout = time.Second })
+
+	ts.srv.wg.Add(1)
+	go ts.srv.wg.Done()
+
+	if clean := ts.srv.awaitConns(); !clean {
+		t.Fatal("awaitConns() = false, want true: nothing was left running")
+	}
+}
+
+// TestIdleConnectionIsClosedAfterIdleTimeout is 6.8: a connection that never
+// sends a request must be closed rather than pinning a goroutine forever.
+func TestIdleConnectionIsClosedAfterIdleTimeout(t *testing.T) {
+	ts := newTestServer(t, func(c *Config) { c.IdleTimeout = 50 * time.Millisecond })
+	c := ts.dial()
+
+	// Say nothing. The server must close the connection on its own.
+	_ = c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 1)
+	_, err := c.conn.Read(buf)
+	if err == nil {
+		t.Fatal("read succeeded on an idle connection the server should have closed")
+	}
+}
+
+// TestConnectionsAreBoundedByMaxConns is 6.8's other half: acceptLoop blocks
+// past MaxConns rather than spawning an unbounded goroutine per accept. Two
+// connections hold their slots parked in wait; a third connection's request
+// must go unanswered until one of the first two releases its slot -- a raw
+// dial alone would succeed regardless (the kernel backlog accepts a
+// connection independent of this process ever calling Accept), so the test
+// asserts on the request being served, not on the dial.
+func TestConnectionsAreBoundedByMaxConns(t *testing.T) {
+	ts := newTestServer(t, func(c *Config) { c.MaxConns = 2 })
+
+	parked := make([]*client, 2)
+	for i := range 2 {
+		parked[i] = ts.dial()
+		name := fmt.Sprintf("waiter%d", i)
+		parked[i].register(name, "proj", fmt.Sprintf("s%d", i))
+		go func() {
+			parked[i].call(protocol.MethodWait, protocol.WaitParams{Name: name, Workspace: "proj", TimeoutMS: 30000})
+		}()
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for len(ts.srv.connSlots) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("both parked connections never occupied their slots")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	third := ts.dial()
+	regDone := make(chan protocol.Response, 1)
+	go func() {
+		regDone <- third.call(protocol.MethodRegister, protocol.RegisterParams{Name: "late", Workspace: "proj"})
+	}()
+
+	select {
+	case <-regDone:
+		t.Fatal("third connection was served while both MaxConns slots were full")
+	case <-time.After(300 * time.Millisecond):
+		// expected: acceptLoop hasn't even called Accept on it yet
+	}
+
+	// Free a slot the direct way: close one of the parked connections. A
+	// completed wait alone would not free it -- the connection stays open
+	// and handleConn keeps its slot until the connection itself closes.
+	parked[0].close()
+
+	select {
+	case resp := <-regDone:
+		if resp.Error != nil {
+			t.Fatalf("third connection's register failed once a slot freed: %v", resp.Error)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("third connection was never served after a slot freed")
+	}
+}
 
 func TestGracefulShutdownUnblocksEverything(t *testing.T) {
 	dir := shortTempDir(t)

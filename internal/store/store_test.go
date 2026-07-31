@@ -272,6 +272,51 @@ func TestRegisterNameTakenThenStaleTakeover(t *testing.T) {
 	}
 }
 
+// TestReclaimAgentSucceedsOnMatchingIncumbent is defect C5: reclaiming a
+// name via ReclaimAgent overwrites the row when it still matches the exact
+// pid/pid_start the caller observed.
+func TestReclaimAgentSucceedsOnMatchingIncumbent(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", SessionID: "sess-1", Cwd: "/a", PID: 111, PIDStart: 222})
+
+	claimant := Agent{Workspace: "ws", Name: "alice", SessionID: "sess-2", Cwd: "/b", PID: 333, PIDStart: 444}
+	ok, err := s.ReclaimAgent(ctx, claimant, 111, 222)
+	if err != nil {
+		t.Fatalf("ReclaimAgent: %v", err)
+	}
+	if !ok {
+		t.Fatal("ReclaimAgent = false, want true (pid/pid_start matched)")
+	}
+	got, err := s.GetAgent(ctx, "ws", "alice")
+	if err != nil || got.SessionID != "sess-2" {
+		t.Fatalf("reclaim did not take effect: %+v, err=%v", got, err)
+	}
+}
+
+// TestReclaimAgentFailsWhenTheRowMoved is the TOCTOU close: if the
+// incumbent's pid/pid_start no longer matches what the caller observed
+// (someone else already reclaimed it, or it came back alive under a new
+// identity), ReclaimAgent must not blindly overwrite it.
+func TestReclaimAgentFailsWhenTheRowMoved(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", SessionID: "sess-1", Cwd: "/a", PID: 111, PIDStart: 222})
+
+	claimant := Agent{Workspace: "ws", Name: "alice", SessionID: "sess-2", Cwd: "/b", PID: 333, PIDStart: 444}
+	ok, err := s.ReclaimAgent(ctx, claimant, 999, 888) // stale observation: wrong pid/pid_start
+	if err != nil {
+		t.Fatalf("ReclaimAgent: %v", err)
+	}
+	if ok {
+		t.Fatal("ReclaimAgent = true, want false (observed identity did not match the current row)")
+	}
+	got, err := s.GetAgent(ctx, "ws", "alice")
+	if err != nil || got.SessionID != "sess-1" {
+		t.Fatalf("a failed reclaim mutated the row: %+v, err=%v", got, err)
+	}
+}
+
 func TestGetAgentUnknown(t *testing.T) {
 	s := newStore(t)
 	if _, err := s.GetAgent(context.Background(), "ws", "ghost"); !errors.Is(err, ErrNoSuchAgent) {
@@ -306,7 +351,7 @@ func TestRenameMovesNameAndPendingMail(t *testing.T) {
 	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a"})
 	mustSend(t, s, Message{FromName: "backend", FromWS: "ws", ToName: "frontend", ToWS: "ws", Body: "hi"})
 
-	oldName, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "frontend2", SessionID: "sess-1", Cwd: "/a2"})
+	oldName, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "frontend2", SessionID: "sess-1", Cwd: "/a2"}, time.Time{})
 	if err != nil {
 		t.Fatalf("Rename: %v", err)
 	}
@@ -340,7 +385,7 @@ func TestRenameOntoALiveNameConflicts(t *testing.T) {
 	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a"})
 	mustRegister(t, s, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-2", Cwd: "/b"})
 
-	_, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-1", Cwd: "/a"})
+	_, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-1", Cwd: "/a"}, time.Time{})
 	if !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("Rename onto a live name = %v, want ErrNameTaken", err)
 	}
@@ -355,9 +400,34 @@ func TestRenameOntoALiveNameConflicts(t *testing.T) {
 	}
 }
 
+// TestRenameOntoADeadNameReclaimsWithAPastCutoff is drift item 17: a target
+// name held by an agent whose last_seen is before staleCutoff is renamable
+// into, the same escape hatch Register already has for a dead incumbent.
+func TestRenameOntoADeadNameReclaimsWithAPastCutoff(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a"})
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-2", Cwd: "/b"})
+
+	// A cutoff in the future makes every real last_seen count as stale.
+	futureCutoff := time.Now().Add(time.Hour)
+	oldName, err := s.Rename(ctx,
+		Agent{Workspace: "ws", Name: "backend", SessionID: "sess-1", Cwd: "/a"}, futureCutoff)
+	if err != nil {
+		t.Fatalf("Rename onto a name past the cutoff: %v", err)
+	}
+	if oldName != "frontend" {
+		t.Fatalf("oldName = %q, want frontend", oldName)
+	}
+	got, err := s.GetAgent(ctx, "ws", "backend")
+	if err != nil || got.SessionID != "sess-1" {
+		t.Fatalf("backend was not reclaimed by sess-1: %+v, err=%v", got, err)
+	}
+}
+
 func TestRenameNoExistingSessionIsNoSuchAgent(t *testing.T) {
 	s := newStore(t)
-	_, err := s.Rename(context.Background(), Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-ghost", Cwd: "/a"})
+	_, err := s.Rename(context.Background(), Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-ghost", Cwd: "/a"}, time.Time{})
 	if !errors.Is(err, ErrNoSuchAgent) {
 		t.Fatalf("Rename with no existing session = %v, want ErrNoSuchAgent", err)
 	}
@@ -368,7 +438,7 @@ func TestRenameToTheSameNameIsANoOpRefresh(t *testing.T) {
 	s := newStore(t)
 	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a"})
 
-	oldName, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a2"})
+	oldName, err := s.Rename(ctx, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a2"}, time.Time{})
 	if err != nil {
 		t.Fatalf("Rename to the same name: %v", err)
 	}

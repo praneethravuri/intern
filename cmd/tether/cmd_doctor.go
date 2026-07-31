@@ -116,7 +116,7 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 			report.DBSizeBytes = info.Size()
 		}
 	}
-	if logPath, err := daemonLogPath(); err == nil {
+	if logPath, err := protocol.LogPath(); err == nil {
 		report.DaemonLogPath = logPath
 	}
 
