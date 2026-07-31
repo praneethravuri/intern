@@ -38,14 +38,17 @@ signs:
 sboms:
   - artifacts: archive
 
-# Requires the praneethravuri/homebrew-tap repo to exist; not yet created.
-brews:
-  - name: tether
-    repository:
-      owner: praneethravuri
-      name: homebrew-tap
-    homepage: "https://github.com/praneethravuri/tether"
-    description: "Cross-harness coordination for coding agents: register a name, exchange mail, and see presence over a local unix socket."
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
+# Homebrew tap: praneethravuri/homebrew-tap does not exist yet, and a
+# release would fail outright trying to push a formula to a missing repo.
+# Create the tap first, then uncomment.
+#
+# brews:
+#   - name: tether
+#     repository:
+#       owner: praneethravuri
+#       name: homebrew-tap
+#     homepage: "https://github.com/praneethravuri/tether"
+#     description: "Cross-harness coordination for coding agents: register a name, exchange mail, and see presence over a local unix socket."
+#     commit_author:
+#       name: goreleaserbot
+#       email: bot@goreleaser.com
