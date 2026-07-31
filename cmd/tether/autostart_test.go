@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 func TestDaemonLogPath_UnderHomeTetherDir(t *testing.T) {

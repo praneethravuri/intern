@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,8 +17,8 @@ import (
 	"time"
 
 	"github.com/praneethravuri/tether/internal/proc"
+	"github.com/praneethravuri/tether/internal/protocol"
 	"github.com/praneethravuri/tether/internal/store"
-	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 // Defaults for Config. Anything non-positive in a caller-supplied Config falls
@@ -464,6 +465,12 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 		}
 	}()
 
+	if req.V != protocol.Version {
+		return protocol.Fail(req.ID, protocol.CodeVersionMismatch,
+			fmt.Sprintf("daemon speaks protocol v%d, request declared v%d — restart the daemon",
+				protocol.Version, req.V))
+	}
+
 	// Wait is a long poll and must not inherit the per-request deadline.
 	if req.Method != protocol.MethodWait {
 		var cancel context.CancelFunc
@@ -536,10 +543,19 @@ func (s *Server) handleRegister(ctx context.Context, req protocol.Request, peerP
 		}
 	}
 
-	// Peer pid is a fallback for when the client didn't supply a session pid.
+	// peerPID is the short-lived tether CLI itself, not the shell pid a
+	// client claims -- so what must hold is a shared session, not equality.
 	sessionPID := p.PID
-	if sessionPID <= 0 {
+	switch {
+	case peerPID <= 0:
+		// no signal to check against; fall through unchanged
+	case sessionPID <= 0:
 		sessionPID = peerPID
+	case sessionPID == peerPID, proc.SameSession(sessionPID, peerPID):
+		// claimed pid is the connecting process, or shares its session
+	default:
+		return s.fail(req.ID, badRequest(
+			"pid %d is not this connection's process or in its session", sessionPID), "register")
 	}
 
 	if sessionPID > 0 && !proc.Alive(sessionPID) {
@@ -677,22 +693,17 @@ func (s *Server) registerOrReclaim(ctx context.Context, a store.Agent) (created 
 	return false, nil // reclaiming an existing row, not creating one
 }
 
-// authenticate checks that session is allowed to act as ws/name: a missing
-// agent or an empty stored/claimed session passes; a mismatch between two
-// non-empty sessions means someone else's session holds the name.
+// authenticate checks that session matches ws/name's stored session exactly
+// (both empty counts as a match); a missing agent is never authenticated.
 //
-// Same-uid forgery is still possible (any local process can read another
-// session's id); the 0700 socket directory is the real trust boundary, not
-// this comparison.
+// Same-uid forgery of the session id is still possible; the 0700 socket
+// directory is the real trust boundary, not this comparison.
 func (s *Server) authenticate(ctx context.Context, ws, name, session string) error {
 	a, err := s.store.GetAgent(ctx, ws, name)
 	if err != nil {
-		if errors.Is(err, store.ErrNoSuchAgent) {
-			return nil
-		}
 		return err
 	}
-	if a.SessionID == "" || session == "" || a.SessionID == session {
+	if a.SessionID == session {
 		return nil
 	}
 	return fmt.Errorf("%w: acting as %s but a different session holds that name",
@@ -1111,14 +1122,17 @@ func badRequest(format string, args ...any) error {
 
 // -- request helpers --------------------------------------------------------
 
-// decodeParams decodes req.Params into dst. An absent params block is valid and
-// leaves dst at its zero value; the handler's own validation then rejects it.
+// decodeParams decodes req.Params into dst, rejecting any unrecognised field
+// rather than silently dropping it. An absent params block is valid; the
+// handler's own validation rejects an empty dst.
 func decodeParams(req protocol.Request, dst any) error {
 	if len(req.Params) == 0 {
 		return nil
 	}
-	if err := json.Unmarshal(req.Params, dst); err != nil {
-		return badRequest("invalid params for %s", clip(req.Method))
+	dec := json.NewDecoder(bytes.NewReader(req.Params))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return badRequest("invalid params for %s: %v", clip(req.Method), err)
 	}
 	return nil
 }

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/praneethravuri/tether/internal/protocol"
 	"github.com/praneethravuri/tether/internal/store"
-	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 func TestDaemonIsLive_NoSocketAtAll(t *testing.T) {
@@ -114,7 +114,7 @@ func TestEndToEndOverRealSocket(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
 		}
-		if err := enc.Encode(protocol.Request{ID: id, Method: method, Params: raw}); err != nil {
+		if err := enc.Encode(protocol.Request{ID: id, V: protocol.Version, Method: method, Params: raw}); err != nil {
 			t.Fatalf("write %s: %v", method, err)
 		}
 		var resp protocol.Response
@@ -127,8 +127,10 @@ func TestEndToEndOverRealSocket(t *testing.T) {
 		return resp
 	}
 
-	call("1", protocol.MethodRegister, protocol.RegisterParams{Name: "alice", Workspace: "proj", SessionID: "s1"})
-	call("2", protocol.MethodRegister, protocol.RegisterParams{Name: "bob", Workspace: "proj", SessionID: "s2"})
+	// No session on either register: none of the calls below claim one
+	// either, and this test is about the wiring, not about authentication.
+	call("1", protocol.MethodRegister, protocol.RegisterParams{Name: "alice", Workspace: "proj"})
+	call("2", protocol.MethodRegister, protocol.RegisterParams{Name: "bob", Workspace: "proj"})
 	call("3", protocol.MethodSend, protocol.SendParams{
 		FromName: "alice", FromWorkspace: "proj",
 		ToName: "bob", ToWorkspace: "proj",

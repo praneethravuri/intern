@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 // Exit codes mirror cmd/tether/main.go; redefined here since cmd/tether is
@@ -641,7 +641,7 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal register params: %v", err)
 		}
-		if err := enc.Encode(protocol.Request{ID: "seed", Method: protocol.MethodRegister, Params: raw}); err != nil {
+		if err := enc.Encode(protocol.Request{ID: "seed", V: protocol.Version, Method: protocol.MethodRegister, Params: raw}); err != nil {
 			t.Fatalf("encode seed register: %v", err)
 		}
 		var resp protocol.Response
@@ -681,7 +681,7 @@ func TestEndToEnd(t *testing.T) {
 		dec := json.NewDecoder(conn)
 
 		for _, method := range []string{"unregister", "heartbeat", "who", "status"} {
-			if err := enc.Encode(protocol.Request{ID: method, Method: method}); err != nil {
+			if err := enc.Encode(protocol.Request{ID: method, V: protocol.Version, Method: method}); err != nil {
 				t.Fatalf("encode %s: %v", method, err)
 			}
 			var resp protocol.Response

@@ -5,14 +5,11 @@ package proc
 import "syscall"
 
 // Alive reports whether pid names a process that is still running, via
-// signal 0 (POSIX's existence-check no-op).
+// signal 0. Any error, including EPERM (owned by someone else), reads as
+// not alive: this can't confirm it's the process a session claimed.
 func Alive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	err := syscall.Kill(pid, 0)
-	if err == nil {
-		return true
-	}
-	return err != syscall.ESRCH
+	return syscall.Kill(pid, 0) == nil
 }

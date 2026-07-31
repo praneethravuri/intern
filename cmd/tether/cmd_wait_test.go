@@ -1,11 +1,12 @@
 package main
 
 import (
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 func TestWaitReturnsZeroWhenMailIsPending(t *testing.T) {
@@ -247,5 +248,37 @@ func TestWaitWithoutADaemonExitsThree(t *testing.T) {
 	r := run(t, newWaitCmd(), "", "--timeout", "1s")
 	if got := r.exitCode(); got != exitNoDaemon {
 		t.Fatalf("exit code = %d, want %d", got, exitNoDaemon)
+	}
+}
+
+// TestWaitBoundsAutoStartRetriesOnRepeatedTransportFailure is C2/6.7: a
+// daemon that never becomes reachable must not be re-spawned on every retry
+// within one wait call -- that is the unbounded-respawn-loop bug. spawnDaemon
+// is allowed to run at most twice for the whole command (the implicit
+// register ensureRegistered issues before wait, plus wait's own first
+// attempt), never once per retry no matter how many retries the timeout
+// budget allows.
+func TestWaitBoundsAutoStartRetriesOnRepeatedTransportFailure(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	noDaemon(t)
+
+	var spawns int32
+	restoreSpawn(t, func(string) error {
+		atomic.AddInt32(&spawns, 1)
+		return errors.New("spawn always fails in this test")
+	})
+
+	start := time.Now()
+	r := run(t, newWaitCmd(), "", "--timeout", "500ms")
+	elapsed := time.Since(start)
+
+	if got := r.exitCode(); got != exitNoDaemon {
+		t.Fatalf("exit code = %d, want %d", got, exitNoDaemon)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("wait took %v to give up on a 500ms budget with no daemon ever reachable", elapsed)
+	}
+	if n := atomic.LoadInt32(&spawns); n > 2 {
+		t.Fatalf("spawnDaemon was called %d times, want at most 2 -- not once per retry", n)
 	}
 }

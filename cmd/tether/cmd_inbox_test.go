@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 // ago renders a timestamp d in the past, the way the daemon would.

@@ -1012,6 +1012,42 @@ func TestSendEnforcesInboxDepthPrefersDroppingNotes(t *testing.T) {
 	}
 }
 
+// TestSendOfANoteIntoAFullNonNoteInboxSurvives is the narrower eviction bug
+// left by kind='note' DESC ordering: a note landing in an inbox already full
+// of higher-priority kinds is the top drop candidate by that ordering alone,
+// so naively it would be evicted in the very transaction that accepted it.
+// The message just inserted is always excluded from the candidates, so it
+// must survive; the oldest handoff is displaced in its place.
+func TestSendOfANoteIntoAFullNonNoteInboxSurvives(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	pair(t, s)
+
+	handoffs := make([]string, 0, maxInboxDepth)
+	for i := 0; i < maxInboxDepth; i++ {
+		h := note(fmt.Sprintf("h%d", i))
+		h.Kind = KindHandoff
+		handoffs = append(handoffs, mustSend(t, s, h))
+	}
+
+	noteID := mustSend(t, s, note("just arrived"))
+
+	pending, err := s.Inbox(ctx, "ws", "bob", maxInboxDepth+1)
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	got := ids(pending)
+	if !contains(got, noteID) {
+		t.Fatalf("the note just sent was evicted in its own transaction: pending = %v", got)
+	}
+	if contains(got, handoffs[0]) {
+		t.Fatalf("the oldest handoff should have been evicted in its place: pending = %v", got)
+	}
+	if len(got) != maxInboxDepth {
+		t.Fatalf("pending = %d messages, want %d", len(got), maxInboxDepth)
+	}
+}
+
 func TestSendAtExactlyMaxInboxDepthDropsNothing(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

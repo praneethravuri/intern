@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 func TestRegisterHappyPath(t *testing.T) {
