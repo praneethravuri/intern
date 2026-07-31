@@ -20,26 +20,28 @@ jobs:
   pre-commit:
     name: pre-commit hooks
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Run pre-commit hooks
-        uses: pre-commit/action@v3.0.1
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         env:
           SKIP: golangci-lint,go-fmt
 
   build-and-test:
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     permissions:
       contents: read
     strategy:
@@ -50,10 +52,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -96,42 +98,109 @@ jobs:
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       # Reads .golangci.yml from the repo root; don't duplicate the linter list here.
+      # Pinned exact version: `latest` let main go red with no code change here.
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.12.2
 
   shellcheck:
     # Nothing else catches a syntax error in a script users pipe into `sh`.
     name: shellcheck install.sh
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run shellcheck
-        uses: ludeeus/action-shellcheck@2.0.0
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
         with:
           scandir: docs
+
+  install-e2e:
+    # Proves install.sh actually works against a real snapshot build, not
+    # just that it parses. It enforces https with no -k, so the runner needs a trusted local cert.
+    name: install.sh against a goreleaser snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build snapshot release
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean --skip=sign,sbom
+
+      - name: Generate a locally-trusted TLS cert
+        shell: bash
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$RUNNER_TEMP/key.pem" -out "$RUNNER_TEMP/cert.pem" \
+            -days 1 -subj "/CN=localhost"
+          sudo cp "$RUNNER_TEMP/cert.pem" /usr/local/share/ca-certificates/tether-install-e2e.crt
+          sudo update-ca-certificates
+
+      - name: Serve the snapshot over https and run install.sh against it
+        shell: bash
+        run: |
+          serve_dir="$RUNNER_TEMP/serve/latest/download"
+          mkdir -p "$serve_dir"
+          cp dist/*.tar.gz dist/checksums.txt "$serve_dir/"
+
+          cat > "$RUNNER_TEMP/serve_tls.py" <<'PY'
+          import http.server, ssl, sys, os
+          os.chdir(sys.argv[1])
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          ctx.load_cert_chain(certfile=sys.argv[2], keyfile=sys.argv[3])
+          httpd = http.server.HTTPServer(("localhost", int(sys.argv[4])), http.server.SimpleHTTPRequestHandler)
+          httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+          httpd.serve_forever()
+          PY
+          python3 "$RUNNER_TEMP/serve_tls.py" "$RUNNER_TEMP/serve" \
+            "$RUNNER_TEMP/cert.pem" "$RUNNER_TEMP/key.pem" 8443 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for _ in $(seq 1 20); do
+            curl -fsS https://localhost:8443/latest/download/checksums.txt >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+
+          install_dir="$RUNNER_TEMP/install"
+          TETHER_BASE_URL="https://localhost:8443" TETHER_INSTALL_DIR="$install_dir" sh docs/install.sh
+          "$install_dir/tether" version
 
   cross-compile:
     name: cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     strategy:
@@ -149,10 +218,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true

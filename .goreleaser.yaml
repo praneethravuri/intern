@@ -12,6 +12,8 @@ builds:
     ldflags: -s -w -X main.version=v{{ .Version }}
     goos: [linux, darwin]
     goarch: [amd64, arm64]
+    # Byte-identical output for the same commit regardless of when/where it's built.
+    mod_timestamp: '{{ .CommitTimestamp }}'
 
 # One archive per platform. Name has no version in it, so install.sh can use
 # the stable /releases/latest/download/ and /releases/download/<tag>/ URLs
@@ -24,3 +26,29 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+# Keyless cosign signature over checksums.txt covers every artifact by its
+# hash, so signing each archive individually would be redundant.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: [sign-blob, "--bundle=${signature}", "${artifact}", --yes]
+    artifacts: checksum
+
+sboms:
+  - artifacts: archive
+
+# Homebrew tap: praneethravuri/homebrew-tap does not exist yet, and a
+# release would fail outright trying to push a formula to a missing repo.
+# Create the tap first, then uncomment.
+#
+# brews:
+#   - name: tether
+#     repository:
+#       owner: praneethravuri
+#       name: homebrew-tap
+#     homepage: "https://github.com/praneethravuri/tether"
+#     description: "Cross-harness coordination for coding agents: register a name, exchange mail, and see presence over a local unix socket."
+#     commit_author:
+#       name: goreleaserbot
+#       email: bot@goreleaser.com
