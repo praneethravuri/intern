@@ -1,13 +1,18 @@
 package store
 
-import "time"
+import (
+	"time"
 
-// Message kinds.
+	"github.com/praneethravuri/tether/internal/kind"
+)
+
+// Message kinds, re-exported from internal/kind so every existing call site
+// in this package and its callers keeps working unchanged.
 const (
-	KindNote     = "note"
-	KindHandoff  = "handoff"
-	KindQuestion = "question"
-	KindAnswer   = "answer"
+	KindNote     = kind.Note
+	KindHandoff  = kind.Handoff
+	KindQuestion = kind.Question
+	KindAnswer   = kind.Answer
 )
 
 // Agent is a registered participant on the bus, uniquely identified by
@@ -67,11 +72,7 @@ func (m Message) To() string { return m.ToName + "@" + m.ToWS }
 
 // ValidKind reports whether k is a known message kind.
 func ValidKind(k string) bool {
-	switch k {
-	case KindNote, KindHandoff, KindQuestion, KindAnswer:
-		return true
-	}
-	return false
+	return kind.Valid(k)
 }
 
 // fromMS converts Unix milliseconds back to a local time.Time.

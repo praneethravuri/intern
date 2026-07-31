@@ -65,9 +65,9 @@ func runExplain(cmd *cobra.Command, args []string, opts *identityFlags) error {
 		return err
 	}
 
-	var res protocol.StatusResult
+	var res protocol.ExplainResult
 	if err := call(protocol.MethodExplain,
-		protocol.StatusParams{Name: name, Workspace: workspace}, &res); err != nil {
+		protocol.ExplainParams{Name: name, Workspace: workspace}, &res); err != nil {
 		// "nobody was there" shares wait/send's timeout exit code, not the general one.
 		if code, ok := daemonCode(err); ok && code == protocol.CodeNotFound {
 			return fail(exitTimeout, err)

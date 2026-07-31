@@ -309,8 +309,8 @@ func TestRegister_DoingSetsLastNoteAndSurvivesAnEmptyReregister(t *testing.T) {
 		Cwd: "/tmp", PID: os.Getpid(), Doing: "compiling tests, ~5min",
 	}, &protocol.RegisterResult{})
 
-	var st protocol.StatusResult
-	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	var st protocol.ExplainResult
+	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.StateDetail != "compiling tests, ~5min" {
 		t.Fatalf("StateDetail = %q, want the note", st.Agent.StateDetail)
 	}
@@ -322,7 +322,7 @@ func TestRegister_DoingSetsLastNoteAndSurvivesAnEmptyReregister(t *testing.T) {
 		Cwd: "/tmp", PID: os.Getpid(),
 	}, &protocol.RegisterResult{})
 
-	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.StateDetail != "compiling tests, ~5min" {
 		t.Fatalf("StateDetail after empty-Doing re-register = %q, want the note preserved", st.Agent.StateDetail)
 	}
@@ -431,10 +431,10 @@ func TestRegister_ExplicitNameRenamesAndMovesMail(t *testing.T) {
 	}
 
 	_ = c.mustFail(protocol.MethodExplain,
-		protocol.StatusParams{Name: "alice", Workspace: "proj"}, protocol.CodeNotFound)
+		protocol.ExplainParams{Name: "alice", Workspace: "proj"}, protocol.CodeNotFound)
 
-	var st protocol.StatusResult
-	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "frontend", Workspace: "proj"}, &st)
+	var st protocol.ExplainResult
+	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "frontend", Workspace: "proj"}, &st)
 	if st.Agent.Pending != 1 {
 		t.Fatalf("frontend pending = %d, want 1 (mail must follow the rename)", st.Agent.Pending)
 	}
@@ -506,8 +506,8 @@ func TestRegister_LivePidRecordsPidStart(t *testing.T) {
 
 	c.register("alice", "proj", "s1") // client.register uses os.Getpid(), which is alive
 
-	var st protocol.StatusResult
-	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	var st protocol.ExplainResult
+	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.PID != os.Getpid() {
 		t.Fatalf("stored pid = %d, want %d", st.Agent.PID, os.Getpid())
 	}
@@ -542,8 +542,8 @@ func TestRegister_DeadIncumbentReclaimedImmediately(t *testing.T) {
 		t.Fatalf("reclaim reported Created=true, want false (the row already existed)")
 	}
 
-	var st protocol.StatusResult
-	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	var st protocol.ExplainResult
+	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.PID != os.Getpid() {
 		t.Fatalf("reclaim did not update the stored pid: %+v", st.Agent)
 	}
@@ -754,8 +754,8 @@ func TestActivityKeepsAgentAliveAndNameUnstealable(t *testing.T) {
 		Name: "alice", Workspace: "proj", Session: "sess-1",
 	}, &protocol.InboxResult{})
 
-	var who protocol.WhoResult
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
+	var who protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Workspace: "proj"}, &who)
 	found := false
 	for _, a := range who.Agents {
 		if a.Name == "alice" {
@@ -1067,7 +1067,7 @@ func TestSend_Validation(t *testing.T) {
 
 // TestInbox_LimitIsClampedOrRejected covers both halves of the P1 fix:
 // a non-positive limit quietly becomes the default of 50 (never "no
-// limit"), and anything past maxInboxLimit is now a hard 400 naming both
+// limit"), and anything past maxInboxRequestLimit is now a hard 400 naming both
 // numbers instead of a silent clamp down to the max.
 func TestInbox_LimitIsClampedOrRejected(t *testing.T) {
 	ts := newTestServer(t, nil)
@@ -1075,9 +1075,9 @@ func TestInbox_LimitIsClampedOrRejected(t *testing.T) {
 	c.register("alice", "proj", "s1")
 	c.register("bob", "proj", "s2")
 
-	// More than defaultInboxLimit so the cap is actually provable, not just
+	// More than store.DefaultInboxLimit so the cap is actually provable, not just
 	// "returned everything there was".
-	const sent = defaultInboxLimit + 10
+	const sent = store.DefaultInboxLimit + 10
 	for i := 0; i < sent; i++ {
 		c.send(fmt.Sprintf("msg %d", i))
 	}
@@ -1091,28 +1091,28 @@ func TestInbox_LimitIsClampedOrRejected(t *testing.T) {
 	}
 
 	// A negative limit falls back to the default rather than reaching SQL.
-	if got := peek(-5); got != defaultInboxLimit {
-		t.Fatalf("inbox with negative limit = %d messages, want %d", got, defaultInboxLimit)
+	if got := peek(-5); got != store.DefaultInboxLimit {
+		t.Fatalf("inbox with negative limit = %d messages, want %d", got, store.DefaultInboxLimit)
 	}
 	// limit 0 means the same thing: the honest default, not "no limit".
-	if got := peek(0); got != defaultInboxLimit {
-		t.Fatalf("inbox with limit 0 = %d messages, want %d", got, defaultInboxLimit)
+	if got := peek(0); got != store.DefaultInboxLimit {
+		t.Fatalf("inbox with limit 0 = %d messages, want %d", got, store.DefaultInboxLimit)
 	}
 
-	// Anything past maxInboxLimit is rejected outright, not silently
+	// Anything past maxInboxRequestLimit is rejected outright, not silently
 	// truncated down to it.
 	e := c.mustFail(protocol.MethodInbox,
-		protocol.InboxParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], Limit: maxInboxLimit + 1, Peek: true},
+		protocol.InboxParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], Limit: maxInboxRequestLimit + 1, Peek: true},
 		protocol.CodeBadRequest)
-	if !strings.Contains(e.Message, fmt.Sprint(maxInboxLimit+1)) || !strings.Contains(e.Message, fmt.Sprint(maxInboxLimit)) {
+	if !strings.Contains(e.Message, fmt.Sprint(maxInboxRequestLimit+1)) || !strings.Contains(e.Message, fmt.Sprint(maxInboxRequestLimit)) {
 		t.Fatalf("error message %q does not name both the limit and the max", e.Message)
 	}
 
-	if got, err := clampLimit(0); err != nil || got != defaultInboxLimit {
-		t.Fatalf("clampLimit(0) = (%d, %v), want (%d, nil)", got, err, defaultInboxLimit)
+	if got, err := clampLimit(0); err != nil || got != store.DefaultInboxLimit {
+		t.Fatalf("clampLimit(0) = (%d, %v), want (%d, nil)", got, err, store.DefaultInboxLimit)
 	}
-	if _, err := clampLimit(maxInboxLimit + 1); err == nil {
-		t.Fatal("clampLimit(maxInboxLimit+1) succeeded, want an error")
+	if _, err := clampLimit(maxInboxRequestLimit + 1); err == nil {
+		t.Fatal("clampLimit(maxInboxRequestLimit+1) succeeded, want an error")
 	}
 }
 
@@ -1145,8 +1145,8 @@ func TestLs_ShowsAgentPastStaleAfter(t *testing.T) {
 	c.register("alice", "proj", "s1")
 	clk.advance(staleAfter * 10)
 
-	var who protocol.WhoResult
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
+	var who protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Workspace: "proj"}, &who)
 	found := false
 	for _, a := range who.Agents {
 		if a.Name == "alice" {
@@ -1218,26 +1218,26 @@ func TestWhoStatus(t *testing.T) {
 	c.register("alice", "proj", "s1")
 	c.register("bob", "other", "s2")
 
-	var who protocol.WhoResult
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
+	var who protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Workspace: "proj"}, &who)
 	if len(who.Agents) != 1 || who.Agents[0].Address != "alice@proj" {
 		t.Fatalf("who(proj) = %+v, want just alice@proj", who.Agents)
 	}
 
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{}, &who)
+	c.mustCall(protocol.MethodLs, protocol.LsParams{}, &who)
 	if len(who.Agents) != 2 {
 		t.Fatalf("who(all workspaces) = %d agents, want 2", len(who.Agents))
 	}
 
-	var st protocol.StatusResult
-	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	var st protocol.ExplainResult
+	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
 	if st.Agent.Address != "alice@proj" {
 		t.Fatalf("status agent = %+v", st.Agent)
 	}
 	if _, err := time.Parse(time.RFC3339, st.Agent.LastSeen); err != nil {
 		t.Fatalf("last_seen %q is not RFC3339: %v", st.Agent.LastSeen, err)
 	}
-	_ = c.mustFail(protocol.MethodExplain, protocol.StatusParams{Name: "ghost", Workspace: "proj"}, protocol.CodeNotFound)
+	_ = c.mustFail(protocol.MethodExplain, protocol.ExplainParams{Name: "ghost", Workspace: "proj"}, protocol.CodeNotFound)
 }
 
 // TestWho_BlockedStateClearsOnRelease proves blocked is read from the live
@@ -1269,8 +1269,8 @@ func TestWho_BlockedStateClearsOnRelease(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	var who protocol.WhoResult
-	setup.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
+	var who protocol.LsResult
+	setup.mustCall(protocol.MethodLs, protocol.LsParams{Workspace: "proj"}, &who)
 	bobState := ""
 	for _, a := range who.Agents {
 		if a.Name == "bob" {
@@ -1289,7 +1289,7 @@ func TestWho_BlockedStateClearsOnRelease(t *testing.T) {
 		t.Fatal("wait did not wake after send")
 	}
 
-	setup.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
+	setup.mustCall(protocol.MethodLs, protocol.LsParams{Workspace: "proj"}, &who)
 	for _, a := range who.Agents {
 		if a.Name == "bob" && a.State == "blocked" {
 			t.Fatalf("bob still reads as blocked after the wait returned: %+v", who.Agents)
@@ -1544,8 +1544,8 @@ func TestConcurrentClients(t *testing.T) {
 		}
 	}
 
-	var who protocol.WhoResult
-	setup.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: workspace}, &who)
+	var who protocol.LsResult
+	setup.mustCall(protocol.MethodLs, protocol.LsParams{Workspace: workspace}, &who)
 	if len(who.Agents) != clients+1 {
 		t.Fatalf("who = %d agents, want %d", len(who.Agents), clients+1)
 	}
@@ -1771,7 +1771,7 @@ func TestHandleWait_PanicStillReleasesTheWaiter(t *testing.T) {
 	// The server is still usable: a fresh wait on the same address blocks
 	// normally rather than tripping over a leftover entry.
 	req2 := protocol.Request{ID: "2", V: protocol.Version, Method: protocol.MethodLs}
-	req2.Params, _ = json.Marshal(protocol.WhoParams{Workspace: "proj"})
+	req2.Params, _ = json.Marshal(protocol.LsParams{Workspace: "proj"})
 	resp2 := srv.dispatch(context.Background(), req2, 0)
 	if resp2.Error == nil || resp2.Error.Code != protocol.CodeInternal {
 		t.Fatalf("who against a nil store = %+v, want a 500 too (sanity: the server is still dispatching)", resp2)
@@ -2153,8 +2153,8 @@ func TestRegisterSanitisesMetadata(t *testing.T) {
 		PID:       os.Getpid(),
 	}, &protocol.RegisterResult{})
 
-	var who protocol.WhoResult
-	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
+	var who protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Workspace: "proj"}, &who)
 	if len(who.Agents) != 1 {
 		t.Fatalf("who = %d agents, want 1", len(who.Agents))
 	}
@@ -2165,8 +2165,8 @@ func TestRegisterSanitisesMetadata(t *testing.T) {
 		}
 	}
 
-	var st protocol.StatusResult
-	c.mustCall(protocol.MethodExplain, protocol.StatusParams{Name: "alice", Workspace: "proj"}, &st)
+	var st protocol.ExplainResult
+	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
 
 	// A same-session re-register must still be recognised as idempotent even
 	// though the session id went through stripControl -- sanitising must not

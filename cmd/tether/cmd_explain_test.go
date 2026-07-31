@@ -7,8 +7,8 @@ import (
 	"github.com/praneethravuri/tether/internal/protocol"
 )
 
-func statusResult() protocol.StatusResult {
-	return protocol.StatusResult{
+func statusResult() protocol.ExplainResult {
+	return protocol.ExplainResult{
 		Agent: protocol.AgentView{
 			Address:      "backend@storefront",
 			Name:         "backend",
@@ -33,7 +33,7 @@ func TestExplainOfSelf(t *testing.T) {
 
 	mustRun(t, newExplainCmd(), "")
 
-	params := decodeParams[protocol.StatusParams](t, d.registerThen(t, protocol.MethodExplain))
+	params := decodeParams[protocol.ExplainParams](t, d.registerThen(t, protocol.MethodExplain))
 	if params.Name != "frontend" || params.Workspace != "storefront" {
 		t.Fatalf("explain of %s@%s, want frontend@storefront (myself)",
 			params.Name, params.Workspace)
@@ -49,7 +49,7 @@ func TestExplainShowsStateSourceSeenAndDetail(t *testing.T) {
 
 	r := mustRun(t, newExplainCmd(), "", "backend")
 
-	params := decodeParams[protocol.StatusParams](t, d.only(t, protocol.MethodExplain))
+	params := decodeParams[protocol.ExplainParams](t, d.only(t, protocol.MethodExplain))
 	if params.Name != "backend" || params.Workspace != "storefront" {
 		t.Fatalf("explain of %s@%s, want backend@storefront", params.Name, params.Workspace)
 	}
@@ -101,7 +101,7 @@ func TestExplainOfAnAgentInAnotherWorkspace(t *testing.T) {
 
 	mustRun(t, newExplainCmd(), "", "backend@warehouse")
 
-	params := decodeParams[protocol.StatusParams](t, d.only(t, protocol.MethodExplain))
+	params := decodeParams[protocol.ExplainParams](t, d.only(t, protocol.MethodExplain))
 	if params.Name != "backend" || params.Workspace != "warehouse" {
 		t.Fatalf("explain of %s@%s, want backend@warehouse", params.Name, params.Workspace)
 	}
@@ -113,7 +113,7 @@ func TestExplainJSON(t *testing.T) {
 
 	r := mustRun(t, newExplainCmd(), "", "--json", "backend")
 
-	var got protocol.StatusResult
+	var got protocol.ExplainResult
 	unmarshalJSON(t, r.stdout, &got)
 	if got.Agent.Pending != 2 {
 		t.Fatalf("pending = %d, want 2", got.Agent.Pending)

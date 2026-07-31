@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/praneethravuri/tether/internal/sanitize"
 )
 
 // quiet marks a command as reporting its own failures, so cobra prints
@@ -111,16 +113,7 @@ func dash(s string) string {
 // with U+FFFD so a store-derived string can't smuggle terminal escapes.
 // Never applied on the --json path, which must stay byte-exact.
 func sanitizeTerminal(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch r {
-		case '\n', '\t':
-			return r
-		}
-		if r < 0x20 || r == 0x7f {
-			return '�'
-		}
-		return r
-	}, s)
+	return sanitize.Replace(s, '�', true)
 }
 
 // untrustedContentNotice is printed once above a human-rendered inbox, since

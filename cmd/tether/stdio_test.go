@@ -114,18 +114,18 @@ func TestSuccessPathsNeverBlockAndKeepStderrClean(t *testing.T) {
 		{
 			name:    "explain",
 			newCmd:  newExplainCmd,
-			handler: okHandler(protocol.StatusResult{Agent: protocol.AgentView{Name: "frontend", Workspace: "storefront", Address: "frontend@storefront"}}),
+			handler: okHandler(protocol.ExplainResult{Agent: protocol.AgentView{Name: "frontend", Workspace: "storefront", Address: "frontend@storefront"}}),
 		},
 		{
 			name:    "doctor, healthy",
 			newCmd:  newDoctorCmd,
-			handler: okHandler(protocol.WhoResult{}),
+			handler: okHandler(protocol.LsResult{}),
 			setup:   func(t *testing.T) { t.Setenv("CLAUDECODE", "1") },
 		},
 		{
 			name:       "doctor, unrecognised harness",
 			newCmd:     newDoctorCmd,
-			handler:    okHandler(protocol.WhoResult{}),
+			handler:    okHandler(protocol.LsResult{}),
 			wantWarn:   true,
 			wantInWarn: "not recognised",
 		},

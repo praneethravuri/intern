@@ -8,8 +8,8 @@ import (
 	"github.com/praneethravuri/tether/internal/protocol"
 )
 
-func agents() protocol.WhoResult {
-	return protocol.WhoResult{Agents: []protocol.AgentView{
+func agents() protocol.LsResult {
+	return protocol.LsResult{Agents: []protocol.AgentView{
 		{
 			Address:      "frontend@storefront",
 			Name:         "frontend",
@@ -45,7 +45,7 @@ func TestLsHappyPath(t *testing.T) {
 
 	r := mustRun(t, newLsCmd(), "")
 
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
+	params := decodeParams[protocol.LsParams](t, d.only(t, protocol.MethodLs))
 	if params.Workspace != "storefront" {
 		t.Fatalf("params = %+v, want workspace storefront", params)
 	}
@@ -138,7 +138,7 @@ func TestLsAll(t *testing.T) {
 
 	// --all skips workspace resolution entirely, so the daemon sees every
 	// workspace rather than being told to filter by one.
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
+	params := decodeParams[protocol.LsParams](t, d.only(t, protocol.MethodLs))
 	if params.Workspace != "" {
 		t.Fatalf("workspace = %q, want empty", params.Workspace)
 	}
@@ -146,7 +146,7 @@ func TestLsAll(t *testing.T) {
 
 func TestLsEmpty(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
-	newFakeDaemon(t, okHandler(protocol.WhoResult{}))
+	newFakeDaemon(t, okHandler(protocol.LsResult{}))
 
 	r := mustRun(t, newLsCmd(), "")
 
@@ -164,7 +164,7 @@ func TestLsJSON(t *testing.T) {
 
 	r := mustRun(t, newLsCmd(), "", "--json")
 
-	var got protocol.WhoResult
+	var got protocol.LsResult
 	unmarshalJSON(t, r.stdout, &got)
 	if len(got.Agents) != 2 {
 		t.Fatalf("got %d agents, want 2", len(got.Agents))
@@ -176,7 +176,7 @@ func TestLsJSON(t *testing.T) {
 
 func TestLsJSONEmptyIsAnArray(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
-	newFakeDaemon(t, okHandler(protocol.WhoResult{}))
+	newFakeDaemon(t, okHandler(protocol.LsResult{}))
 
 	r := mustRun(t, newLsCmd(), "", "--json")
 	requireContains(t, r.stdout, `"agents": []`, "stdout")
@@ -184,11 +184,11 @@ func TestLsJSONEmptyIsAnArray(t *testing.T) {
 
 func TestLsUsesTheWorkspaceFlag(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
-	d := newFakeDaemon(t, okHandler(protocol.WhoResult{}))
+	d := newFakeDaemon(t, okHandler(protocol.LsResult{}))
 
 	mustRun(t, newLsCmd(), "", "--workspace", "warehouse")
 
-	params := decodeParams[protocol.WhoParams](t, d.only(t, protocol.MethodLs))
+	params := decodeParams[protocol.LsParams](t, d.only(t, protocol.MethodLs))
 	if params.Workspace != "warehouse" {
 		t.Fatalf("workspace = %q, want warehouse", params.Workspace)
 	}
@@ -228,7 +228,7 @@ func TestLsSurvivesAMalformedResponse(t *testing.T) {
 // Missing fields must not collapse the table.
 func TestLsRendersSparseAgents(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
-	newFakeDaemon(t, okHandler(protocol.WhoResult{Agents: []protocol.AgentView{
+	newFakeDaemon(t, okHandler(protocol.LsResult{Agents: []protocol.AgentView{
 		{Name: "bare", Workspace: "storefront"},
 	}}))
 

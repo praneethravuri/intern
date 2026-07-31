@@ -4,8 +4,9 @@ package daemon
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
 	"net"
+
+	"golang.org/x/sys/unix"
 )
 
 func getPeerPID(conn net.Conn) (int, error) {

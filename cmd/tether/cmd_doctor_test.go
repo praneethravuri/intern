@@ -21,7 +21,7 @@ func TestDoctorWithAHealthyDaemon(t *testing.T) {
 	if len(reqs) != 1 {
 		t.Fatalf("daemon received %d requests, want 1 (ls): %+v", len(reqs), reqs)
 	}
-	params := decodeParams[protocol.WhoParams](t, reqs[0])
+	params := decodeParams[protocol.LsParams](t, reqs[0])
 	if params.Workspace != "storefront" {
 		t.Fatalf("workspace = %q, want storefront", params.Workspace)
 	}
@@ -61,7 +61,7 @@ func TestDoctorIsQuietWhenEveryAgentCanBeWoken(t *testing.T) {
 func TestDoctorWarnsAboutAnUnknownHarness(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	clearHarnessEnv(t)
-	newFakeDaemon(t, okHandler(protocol.WhoResult{}))
+	newFakeDaemon(t, okHandler(protocol.LsResult{}))
 
 	r := mustRun(t, newDoctorCmd(), "")
 	requireContains(t, r.stderr, "not recognised", "stderr")
