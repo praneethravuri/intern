@@ -121,7 +121,7 @@ verify_checksum() {
 	checksums="$2"
 	name="$3"
 
-	expected="$(grep -F " ${name}" "$checksums" | awk '{print $1}')"
+	expected="$(awk -v n="$name" '$2 == n { print $1 }' "$checksums")"
 	if [ -z "$expected" ]; then
 		echo "tether: no checksum entry for ${name}" >&2
 		exit 1
