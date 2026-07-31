@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
@@ -38,5 +39,18 @@ func runDaemon(cmd *cobra.Command) error {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("tether: ")
 
-	return daemon.Run()
+	return daemonRunErr(daemon.Run())
+}
+
+// daemonRunErr maps daemon.Run's error to the CLI's exit code contract: a
+// daemon already holding the socket is a conflict (drift item 9), not a
+// general failure.
+func daemonRunErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, daemon.ErrAlreadyRunning) {
+		return fail(exitConflict, err)
+	}
+	return err
 }

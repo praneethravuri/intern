@@ -823,7 +823,9 @@ func (s *Server) sendOne(ctx context.Context, fromName, fromWS, toName, toWS, ki
 // handleBroadcastSend delivers to every other agent registered in toWS,
 // dropped by name+workspace comparison. Zero recipients is success, not an error.
 func (s *Server) handleBroadcastSend(ctx context.Context, req protocol.Request, fromName, fromWS, toWS, kind, body, replyTo string) protocol.Response {
-	agents, err := s.store.ListAgents(ctx, toWS, s.cfg.StaleAfter)
+	// Unfiltered: an idle-but-registered agent is still "everyone else in
+	// the workspace" and must not be silently skipped, nor counted absent.
+	agents, err := s.store.ListAgents(ctx, toWS, 0)
 	if err != nil {
 		return s.fail(req.ID, err, "send")
 	}
@@ -886,7 +888,7 @@ func (s *Server) handleInbox(ctx context.Context, req protocol.Request) protocol
 	)
 	switch {
 	case p.Replay:
-		msgs, err = s.store.Replay(ctx, ws, name, limit)
+		msgs, err = s.store.Replay(ctx, ws, name, limit, s.cfg.RetainMessages)
 	case p.Peek:
 		msgs, err = s.store.Inbox(ctx, ws, name, limit)
 	default:
@@ -983,7 +985,10 @@ func (s *Server) handleLs(ctx context.Context, req protocol.Request) protocol.Re
 
 	ws := strings.TrimSpace(p.Workspace)
 
-	agents, err := s.store.ListAgents(ctx, ws, s.cfg.StaleAfter)
+	// Unfiltered, like explain: an agent stops appearing only when the
+	// sweeper deletes it, not after StaleAfter -- otherwise gone (the state
+	// you most want to see) becomes unreachable a few minutes after death.
+	agents, err := s.store.ListAgents(ctx, ws, 0)
 	if err != nil {
 		return s.fail(req.ID, err, "who")
 	}
@@ -1060,8 +1065,13 @@ func (s *Server) fail(id string, err error, op string) protocol.Response {
 		return protocol.Fail(id, pe.Code, clip(pe.Message))
 	case errors.Is(err, store.ErrNameTaken):
 		return protocol.Fail(id, protocol.CodeConflict, publicMessage(err))
-	case errors.Is(err, store.ErrNoSuchAgent), errors.Is(err, store.ErrNoSuchMessage):
+	case errors.Is(err, store.ErrNoSuchAgent):
 		return protocol.Fail(id, protocol.CodeNotFound, publicMessage(err))
+	case errors.Is(err, store.ErrNoSuchMessage):
+		// Deliberately not CodeNotFound: a bad --reply-to means the request
+		// was malformed, not that "nobody was there" the way a missing
+		// recipient does, and the two must not share an exit code.
+		return protocol.Fail(id, protocol.CodeBadRequest, publicMessage(err))
 	case errors.Is(err, store.ErrBodyTooLarge):
 		return protocol.Fail(id, protocol.CodeTooLarge, publicMessage(err))
 	case errors.Is(err, store.ErrEmptyBody), errors.Is(err, store.ErrBadAddress):

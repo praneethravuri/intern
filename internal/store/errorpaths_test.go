@@ -53,7 +53,7 @@ func TestMessageMethodsReportCanceledContext(t *testing.T) {
 	if _, err := s.Inbox(ctx, "ws", "bob", 10); err == nil {
 		t.Error("Inbox with canceled context: want error, got nil")
 	}
-	if _, err := s.Replay(ctx, "ws", "bob", 10); err == nil {
+	if _, err := s.Replay(ctx, "ws", "bob", 10, 0); err == nil {
 		t.Error("Replay with canceled context: want error, got nil")
 	}
 	if _, err := s.Ack(ctx, "ws", "bob", []string{id}); err == nil {
