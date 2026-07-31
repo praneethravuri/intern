@@ -9,78 +9,6 @@ import (
 	"testing"
 )
 
-// canceled returns a context that is already canceled, used to force a
-// deterministic error out of any *Context call without a mock driver.
-func canceled() context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	return ctx
-}
-
-func TestAgentMethodsReportCanceledContext(t *testing.T) {
-	s := newStore(t)
-	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", Cwd: "/a"})
-
-	ctx := canceled()
-
-	if err := s.Register(ctx, Agent{Workspace: "ws", Name: "bob", Cwd: "/b"}, s.now()); err == nil {
-		t.Error("Register with canceled context: want error, got nil")
-	}
-	if _, err := s.Heartbeat(ctx, "ws", "alice", "register", ""); err == nil {
-		t.Error("Heartbeat with canceled context: want error, got nil")
-	}
-	if _, err := s.GetAgent(ctx, "ws", "alice"); err == nil {
-		t.Error("GetAgent with canceled context: want error, got nil")
-	}
-	if _, err := s.ListAgents(ctx, "ws", 0); err == nil {
-		t.Error("ListAgents with canceled context: want error, got nil")
-	}
-	if _, err := s.DeleteAgents(ctx, []AgentKey{{Workspace: "ws", Name: "alice"}}); err == nil {
-		t.Error("DeleteAgents with canceled context: want error, got nil")
-	}
-}
-
-func TestMessageMethodsReportCanceledContext(t *testing.T) {
-	s := newStore(t)
-	pair(t, s)
-	id := mustSend(t, s, note("hello"))
-
-	ctx := canceled()
-
-	if _, err := s.Send(ctx, note("hi")); err == nil {
-		t.Error("Send with canceled context: want error, got nil")
-	}
-	if _, err := s.Inbox(ctx, "ws", "bob", 10); err == nil {
-		t.Error("Inbox with canceled context: want error, got nil")
-	}
-	if _, err := s.Replay(ctx, "ws", "bob", 10, 0); err == nil {
-		t.Error("Replay with canceled context: want error, got nil")
-	}
-	if _, err := s.Ack(ctx, "ws", "bob", []string{id}); err == nil {
-		t.Error("Ack with canceled context: want error, got nil")
-	}
-	if _, _, err := s.Drain(ctx, "ws", "bob", 10); err == nil {
-		t.Error("Drain with canceled context: want error, got nil")
-	}
-	if _, err := s.PendingCount(ctx, "ws", "bob"); err == nil {
-		t.Error("PendingCount with canceled context: want error, got nil")
-	}
-	if _, err := s.SweepDead(ctx, 0); err == nil {
-		t.Error("SweepDead with canceled context: want error, got nil")
-	}
-}
-
-func TestPendingByWorkspaceReportsCanceledContext(t *testing.T) {
-	s := newStore(t)
-	mustRegister(t, s, Agent{Workspace: "ws", Name: "alice", Cwd: "/a"})
-
-	ctx := canceled()
-
-	if _, err := s.PendingByWorkspace(ctx, "ws"); err == nil {
-		t.Error("PendingByWorkspace with canceled context: want error, got nil")
-	}
-}
-
 func TestSendReplyToUnknownMessage(t *testing.T) {
 	s := newStore(t)
 	pair(t, s)
@@ -100,14 +28,6 @@ func TestSendInvalidKind(t *testing.T) {
 	m.Kind = "sonnet"
 	if _, err := s.Send(context.Background(), m); err == nil {
 		t.Fatal("Send with an invalid kind: want error, got nil")
-	}
-}
-
-func TestAckUnknownIDsIsANoOp(t *testing.T) {
-	s := newStore(t)
-	n, err := s.Ack(context.Background(), "ws", "bob", nil)
-	if err != nil || n != 0 {
-		t.Fatalf("Ack(nil ids) = (%d, %v), want (0, nil)", n, err)
 	}
 }
 

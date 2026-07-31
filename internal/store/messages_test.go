@@ -25,6 +25,17 @@ func ids(ms []Message) []string {
 	return out
 }
 
+// ack retires ids for name in workspace "ws", exercising the same ackIDs
+// Drain uses in production -- there is no exported Ack; nothing calls it but Drain.
+func ack(t *testing.T, s *Store, name string, ids []string) int {
+	t.Helper()
+	n, err := ackIDs(context.Background(), s.w, s.nowMS(), "ws", name, ids)
+	if err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	return n
+}
+
 // -------------------------------------------------------------- send ------
 
 func TestSendToUnregisteredRecipient(t *testing.T) {
@@ -350,21 +361,13 @@ func TestAckRemovesFromInboxAndReplayKeeps(t *testing.T) {
 	id1 := mustSend(t, s, note("one"))
 	id2 := mustSend(t, s, note("two"))
 
-	n, err := s.Ack(ctx, "ws", "bob", []string{id1})
-	if err != nil {
-		t.Fatalf("Ack: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("Ack = %d, want 1", n)
+	if n := ack(t, s, "bob", []string{id1}); n != 1 {
+		t.Fatalf("ack = %d, want 1", n)
 	}
 
 	// Acking the same id again is a no-op.
-	n, err = s.Ack(ctx, "ws", "bob", []string{id1})
-	if err != nil {
-		t.Fatalf("Ack #2: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("second Ack = %d, want 0 (idempotent)", n)
+	if n := ack(t, s, "bob", []string{id1}); n != 0 {
+		t.Fatalf("second ack = %d, want 0 (idempotent)", n)
 	}
 
 	inbox, err := s.Inbox(ctx, "ws", "bob", 10)
@@ -396,12 +399,8 @@ func TestAckIsScopedToRecipient(t *testing.T) {
 	id1 := mustSend(t, s, note("for bob"))
 
 	// Carol must not be able to retire bob's mail.
-	n, err := s.Ack(ctx, "ws", "carol", []string{id1})
-	if err != nil {
-		t.Fatalf("Ack: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("cross-agent Ack = %d, want 0", n)
+	if n := ack(t, s, "carol", []string{id1}); n != 0 {
+		t.Fatalf("cross-agent ack = %d, want 0", n)
 	}
 	if pending, _ := s.PendingCount(ctx, "ws", "bob"); pending != 1 {
 		t.Fatalf("bob pending = %d, want 1", pending)
@@ -409,17 +408,14 @@ func TestAckIsScopedToRecipient(t *testing.T) {
 }
 
 func TestAckEmptyAndUnknownIDs(t *testing.T) {
-	ctx := context.Background()
 	s := newStore(t)
 	pair(t, s)
 
-	n, err := s.Ack(ctx, "ws", "bob", nil)
-	if err != nil || n != 0 {
-		t.Fatalf("Ack(nil) = %d, %v; want 0, nil", n, err)
+	if n := ack(t, s, "bob", nil); n != 0 {
+		t.Fatalf("ack(nil) = %d, want 0", n)
 	}
-	n, err = s.Ack(ctx, "ws", "bob", []string{"nope", "also-nope"})
-	if err != nil || n != 0 {
-		t.Fatalf("Ack(unknown) = %d, %v; want 0, nil", n, err)
+	if n := ack(t, s, "bob", []string{"nope", "also-nope"}); n != 0 {
+		t.Fatalf("ack(unknown) = %d, want 0", n)
 	}
 }
 
@@ -431,9 +427,7 @@ func TestAckIDsAreNotInjectable(t *testing.T) {
 	mustSend(t, s, note("keep me"))
 
 	evil := "x'); DELETE FROM messages; --"
-	if _, err := s.Ack(ctx, "ws", "bob", []string{evil}); err != nil {
-		t.Fatalf("Ack(evil): %v", err)
-	}
+	ack(t, s, "bob", []string{evil})
 	if n, _ := s.PendingCount(ctx, "ws", "bob"); n != 1 {
 		t.Fatalf("PendingCount = %d, want 1 (injection must not fire)", n)
 	}
@@ -567,9 +561,7 @@ func TestSweepDead(t *testing.T) {
 	}
 
 	// Acked messages are never swept.
-	if _, err := s.Ack(ctx, "ws", "bob", []string{freshID}); err != nil {
-		t.Fatalf("Ack: %v", err)
-	}
+	ack(t, s, "bob", []string{freshID})
 	clk.advance(10 * time.Hour)
 	if n, err = s.SweepDead(ctx, time.Hour); err != nil || n != 0 {
 		t.Fatalf("SweepDead over acked mail = %d, %v; want 0, nil", n, err)
@@ -591,9 +583,7 @@ func TestPurgeMessages(t *testing.T) {
 
 	ackedID := mustSend(t, s, note("read long ago"))
 	_ = mustSend(t, s, note("never read"))
-	if _, err := s.Ack(ctx, "ws", "bob", []string{ackedID}); err != nil {
-		t.Fatalf("Ack: %v", err)
-	}
+	ack(t, s, "bob", []string{ackedID})
 	clk.advance(time.Second)
 	if _, err := s.SweepDead(ctx, 0); err != nil { // cutoff = now, strictly after the dead message's created_at
 		t.Fatalf("SweepDead: %v", err)
@@ -687,9 +677,7 @@ func TestReplayReturnsOldestFirst(t *testing.T) {
 	for i := range 5 {
 		sent = append(sent, mustSend(t, s, note(fmt.Sprintf("m%d", i))))
 	}
-	if _, err := s.Ack(ctx, "ws", "bob", sent); err != nil {
-		t.Fatalf("Ack: %v", err)
-	}
+	ack(t, s, "bob", sent)
 
 	all, err := s.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
@@ -767,9 +755,9 @@ func TestConcurrentSendAndRead(t *testing.T) {
 					continue
 				}
 				record(ms)
-				n, err := s.Ack(ctx, "ws", "bob", ids(ms))
+				n, err := ackIDs(ctx, s.w, s.nowMS(), "ws", "bob", ids(ms))
 				if err != nil {
-					t.Errorf("reader %d Ack: %v", r, err)
+					t.Errorf("reader %d ack: %v", r, err)
 					return
 				}
 				addAcked(n)
@@ -810,10 +798,7 @@ func TestConcurrentSendAndRead(t *testing.T) {
 			break
 		}
 		record(ms)
-		n, err := s.Ack(ctx, "ws", "bob", ids(ms))
-		if err != nil {
-			t.Fatalf("drain Ack: %v", err)
-		}
+		n := ack(t, s, "bob", ids(ms))
 		addAcked(n)
 	}
 

@@ -8,19 +8,21 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/praneethravuri/tether/internal/kind"
 	"github.com/praneethravuri/tether/internal/protocol"
 )
 
-// Message kinds are advisory only.
+// Message kinds are advisory only, re-exported from internal/kind so every
+// call site in this package keeps working unchanged.
 const (
-	kindNote     = "note"
-	kindHandoff  = "handoff"
-	kindQuestion = "question"
-	kindAnswer   = "answer"
+	kindNote     = kind.Note
+	kindHandoff  = kind.Handoff
+	kindQuestion = kind.Question
+	kindAnswer   = kind.Answer
 )
 
 // validKinds is the accepted set, in the order shown in help and errors.
-var validKinds = []string{kindNote, kindHandoff, kindQuestion, kindAnswer}
+var validKinds = kind.All
 
 const sendLong = `Send a message to another agent.
 

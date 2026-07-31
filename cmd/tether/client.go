@@ -28,21 +28,16 @@ const (
 )
 
 // call sends one request to the daemon and decodes one response using the
-// default timeout; use callTimeout for wait's longer one.
+// default timeout; use doCall directly for wait's longer one, or to skip
+// auto-start (doctor, since a health check must never start what it checks).
 func call(method string, params, result any) error {
-	return callTimeout(method, params, result, defaultCallTimeout)
+	return doCall(method, params, result, defaultCallTimeout, true)
 }
 
-// callTimeout is call with an explicit deadline (<=0 means none). A
-// daemon-side failure comes back as *protocol.Error; anything else as an
-// *exitError. result may be nil to discard the response body. A dead socket
-// auto-starts a daemon and retries once -- doctor calls doCall directly with
-// autoStart false, since a health check must never have the side effect of
-// starting what it's checking.
-func callTimeout(method string, params, result any, timeout time.Duration) error {
-	return doCall(method, params, result, timeout, true)
-}
-
+// doCall is call with an explicit deadline (<=0 means none) and control over
+// auto-start. A daemon-side failure comes back as *protocol.Error; anything
+// else as an *exitError. result may be nil to discard the response body. A
+// dead socket auto-starts a daemon and retries once, when autoStart is set.
 func doCall(method string, params, result any, timeout time.Duration, autoStart bool) error {
 	sock, err := protocol.SocketPath()
 	if err != nil {

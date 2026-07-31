@@ -37,7 +37,7 @@ func TestCallSendsTheRequestAndDecodesTheResult(t *testing.T) {
 func TestCallWithoutADaemonExplainsHowToStartOne(t *testing.T) {
 	noDaemon(t)
 
-	err := call(protocol.MethodLs, protocol.WhoParams{}, nil)
+	err := call(protocol.MethodLs, protocol.LsParams{}, nil)
 	if err == nil {
 		t.Fatal("call succeeded with no daemon listening")
 	}
@@ -51,7 +51,7 @@ func TestCallWithoutADaemonExplainsHowToStartOne(t *testing.T) {
 func TestCallSurfacesDaemonErrorsWithTheirCode(t *testing.T) {
 	newFakeDaemon(t, errHandler(protocol.CodeNotFound, "no agent named ghost"))
 
-	err := call(protocol.MethodExplain, protocol.StatusParams{Name: "ghost"}, nil)
+	err := call(protocol.MethodExplain, protocol.ExplainParams{Name: "ghost"}, nil)
 	if err == nil {
 		t.Fatal("call succeeded against an erroring daemon")
 	}
@@ -95,8 +95,8 @@ func TestCallOnMalformedResponses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			newRawDaemon(t, tc.raw)
 
-			var res protocol.WhoResult
-			err := call(protocol.MethodLs, protocol.WhoParams{}, &res)
+			var res protocol.LsResult
+			err := call(protocol.MethodLs, protocol.LsParams{}, &res)
 			if err == nil {
 				t.Fatal("call succeeded against a daemon speaking garbage")
 			}
@@ -111,7 +111,7 @@ func TestCallOnMalformedResponses(t *testing.T) {
 func TestCallWhenTheDaemonHangsUp(t *testing.T) {
 	newSilentDaemon(t)
 
-	err := call(protocol.MethodLs, protocol.WhoParams{}, nil)
+	err := call(protocol.MethodLs, protocol.LsParams{}, nil)
 	if err == nil {
 		t.Fatal("call succeeded against a daemon that never answered")
 	}
@@ -127,8 +127,8 @@ func TestCallOnAnUnreadableResult(t *testing.T) {
 		return protocol.Response{ID: req.ID, Result: json.RawMessage(`"a string, not an object"`)}
 	})
 
-	var res protocol.WhoResult
-	err := call(protocol.MethodLs, protocol.WhoParams{}, &res)
+	var res protocol.LsResult
+	err := call(protocol.MethodLs, protocol.LsParams{}, &res)
 	if err == nil {
 		t.Fatal("call accepted a result of the wrong shape")
 	}
@@ -145,8 +145,8 @@ func TestCallIsNilSafe(t *testing.T) {
 		t.Fatalf("call with nil params and nil result: %v", err)
 	}
 
-	var res protocol.WhoResult
-	if err := call(protocol.MethodLs, protocol.WhoParams{}, &res); err != nil {
+	var res protocol.LsResult
+	if err := call(protocol.MethodLs, protocol.LsParams{}, &res); err != nil {
 		t.Fatalf("call with an empty result body: %v", err)
 	}
 	if len(res.Agents) != 0 {

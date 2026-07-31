@@ -58,9 +58,9 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 		workspace = opts.workspace
 	}
 
-	var res protocol.WhoResult
+	var res protocol.LsResult
 	if err := call(protocol.MethodLs,
-		protocol.WhoParams{Workspace: workspace}, &res); err != nil {
+		protocol.LsParams{Workspace: workspace}, &res); err != nil {
 		return err
 	}
 

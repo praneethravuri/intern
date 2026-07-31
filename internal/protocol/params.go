@@ -110,8 +110,8 @@ type WaitResult struct {
 	Capped   bool `json:"capped,omitempty"`
 }
 
-// WhoParams is the payload for MethodLs.
-type WhoParams struct {
+// LsParams is the payload for MethodLs.
+type LsParams struct {
 	Workspace string `json:"workspace"`
 }
 
@@ -134,18 +134,18 @@ type AgentView struct {
 	LastSeen     string `json:"last_seen"`
 }
 
-// WhoResult is the result for MethodLs.
-type WhoResult struct {
+// LsResult is the result for MethodLs.
+type LsResult struct {
 	Agents []AgentView `json:"agents"`
 }
 
-// StatusParams is the payload for MethodExplain.
-type StatusParams struct {
+// ExplainParams is the payload for MethodExplain.
+type ExplainParams struct {
 	Name      string `json:"name"`
 	Workspace string `json:"workspace"`
 }
 
-// StatusResult is the result for MethodExplain.
-type StatusResult struct {
+// ExplainResult is the result for MethodExplain.
+type ExplainResult struct {
 	Agent AgentView `json:"agent"`
 }

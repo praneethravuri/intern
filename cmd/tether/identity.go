@@ -7,6 +7,7 @@ import (
 
 	"github.com/praneethravuri/tether/internal/daemon"
 	"github.com/praneethravuri/tether/internal/proc"
+	"github.com/praneethravuri/tether/internal/sanitize"
 	"github.com/praneethravuri/tether/internal/wsname"
 )
 
@@ -99,12 +100,7 @@ func validateName(name string) error {
 
 // hasControlByte reports whether s contains a C0 control code or DEL.
 func hasControlByte(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] == 0x7f {
-			return true
-		}
-	}
-	return false
+	return sanitize.HasControlBytes(s)
 }
 
 // resolveTarget splits an address of the form name@workspace, on the last
