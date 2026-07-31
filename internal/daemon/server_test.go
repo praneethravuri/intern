@@ -1024,9 +1024,11 @@ func TestSend_Validation(t *testing.T) {
 	huge.Body = strings.Repeat("x", (64<<10)+1)
 	_ = c.mustFail(protocol.MethodSend, huge, protocol.CodeTooLarge)
 
+	// A bad --reply-to is a malformed request, not "nobody was there" --
+	// it must not share a recipient-missing's exit code (drift item 4).
 	badReply := base()
 	badReply.ReplyTo = "nosuchmessage"
-	_ = c.mustFail(protocol.MethodSend, badReply, protocol.CodeNotFound)
+	_ = c.mustFail(protocol.MethodSend, badReply, protocol.CodeBadRequest)
 
 	// The daemon is still healthy after all of that.
 	c.send("still working")
@@ -1099,6 +1101,85 @@ func TestAckMethodIsGone(t *testing.T) {
 }
 
 // -- presence ---------------------------------------------------------------
+
+// TestLs_ShowsAgentPastStaleAfter is drift item 5.2: ls must not hide an
+// agent once it goes stale -- gone is only reachable if the row is still
+// listed at all, and explain already shows it unfiltered.
+func TestLs_ShowsAgentPastStaleAfter(t *testing.T) {
+	const staleAfter = 50 * time.Millisecond
+	clk := newFakeClock()
+	ts := newTestServerWithClock(t, func(c *Config) { c.StaleAfter = staleAfter }, clk.Now)
+
+	c := ts.dial()
+	c.register("alice", "proj", "s1")
+	clk.advance(staleAfter * 10)
+
+	var who protocol.WhoResult
+	c.mustCall(protocol.MethodLs, protocol.WhoParams{Workspace: "proj"}, &who)
+	found := false
+	for _, a := range who.Agents {
+		if a.Name == "alice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("alice missing from ls once stale: %+v", who.Agents)
+	}
+}
+
+// TestBroadcast_ReachesAgentIdlePastStaleAfter is drift item 5.3: an idle
+// registered agent is still "everyone else in the workspace" for broadcast,
+// not silently skipped and counted absent.
+func TestBroadcast_ReachesAgentIdlePastStaleAfter(t *testing.T) {
+	const staleAfter = 50 * time.Millisecond
+	clk := newFakeClock()
+	ts := newTestServerWithClock(t, func(c *Config) { c.StaleAfter = staleAfter }, clk.Now)
+
+	c := ts.dial()
+	c.register("alice", "proj", "s1")
+	c.register("bob", "proj", "s2")
+	clk.advance(staleAfter * 10)
+
+	var out protocol.SendResult
+	c.mustCall(protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj", FromSession: "s1",
+		ToName: "*", ToWorkspace: "proj", Body: "still here?",
+	}, &out)
+
+	if out.Delivered != 1 || len(out.Recipients) != 1 || out.Recipients[0] != "bob@proj" {
+		t.Fatalf("broadcast result = %+v, want delivery to the idle bob@proj too", out)
+	}
+}
+
+// TestReplay_WindowExpiresFromAckedTime is drift item 5.6: --replay's window
+// is measured from when a message was acked (drained), and is now actually
+// enforced instead of being emergent from the purge sweep's own schedule.
+func TestReplay_WindowExpiresFromAckedTime(t *testing.T) {
+	const window = 50 * time.Millisecond
+	clk := newFakeClock()
+	ts := newTestServerWithClock(t, func(c *Config) { c.RetainMessages = window }, clk.Now)
+
+	c := ts.dial()
+	c.register("alice", "proj", "s1")
+	c.register("bob", "proj", "s2")
+	c.mustCall(protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj", FromSession: "s1",
+		ToName: "bob", ToWorkspace: "proj", Body: "hi",
+	}, &protocol.SendResult{})
+
+	if drained := c.inbox("bob", false); len(drained) != 1 {
+		t.Fatalf("drain = %+v, want 1 message", drained)
+	}
+
+	if replay := c.inbox("bob", true); len(replay) != 1 {
+		t.Fatalf("replay within the window = %+v, want the drained message", replay)
+	}
+
+	clk.advance(window * 2)
+	if replay := c.inbox("bob", true); len(replay) != 0 {
+		t.Fatalf("replay past the window = %+v, want empty", replay)
+	}
+}
 
 func TestWhoStatus(t *testing.T) {
 	ts := newTestServer(t, nil)

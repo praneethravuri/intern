@@ -191,13 +191,19 @@ func (s *Store) Inbox(ctx context.Context, ws, name string, limit int) ([]Messag
 	return out, nil
 }
 
-// Replay returns the recipient's most recent acked messages, oldest first.
-func (s *Store) Replay(ctx context.Context, ws, name string, limit int) ([]Message, error) {
+// Replay returns the recipient's most recent acked messages, oldest first,
+// going back at most window (<= 0 means no limit) since each message was
+// acked -- not since it was sent, which is a different message entirely.
+func (s *Store) Replay(ctx context.Context, ws, name string, limit int, window time.Duration) ([]Message, error) {
 	if limit <= 0 {
 		limit = defaultInboxLimit
 	}
+	var ackedSince int64
+	if window > 0 {
+		ackedSince = s.nowMS() - window.Milliseconds()
+	}
 
-	rows, err := s.r.QueryContext(ctx, qReplay, ws, name, limit)
+	rows, err := s.r.QueryContext(ctx, qReplay, ws, name, ackedSince, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: replay: %w", err)
 	}

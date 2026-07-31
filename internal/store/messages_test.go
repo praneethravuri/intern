@@ -320,7 +320,7 @@ func TestReplayOnlyShowsMessagesAfterADrain(t *testing.T) {
 	if _, err := s.Inbox(ctx, "ws", "bob", 10); err != nil {
 		t.Fatalf("Inbox (peek): %v", err)
 	}
-	replay, err := s.Replay(ctx, "ws", "bob", 10)
+	replay, err := s.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
 		t.Fatalf("Replay after peek: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestReplayOnlyShowsMessagesAfterADrain(t *testing.T) {
 	if _, _, err := s.Drain(ctx, "ws", "bob", 10); err != nil {
 		t.Fatalf("Drain: %v", err)
 	}
-	replay, err = s.Replay(ctx, "ws", "bob", 10)
+	replay, err = s.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
 		t.Fatalf("Replay after drain: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestAckRemovesFromInboxAndReplayKeeps(t *testing.T) {
 		t.Fatalf("Inbox after ack = %v, want [%s]", ids(inbox), id2)
 	}
 
-	replay, err := s.Replay(ctx, "ws", "bob", 10)
+	replay, err := s.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}
@@ -556,7 +556,7 @@ func TestSweepDead(t *testing.T) {
 	}
 
 	// Dead mail is not acked history either.
-	replay, err := s.Replay(ctx, "ws", "bob", 10)
+	replay, err := s.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestSweepDead(t *testing.T) {
 	if n, err = s.SweepDead(ctx, time.Hour); err != nil || n != 0 {
 		t.Fatalf("SweepDead over acked mail = %d, %v; want 0, nil", n, err)
 	}
-	if replay, _ = s.Replay(ctx, "ws", "bob", 10); len(replay) != 1 {
+	if replay, _ = s.Replay(ctx, "ws", "bob", 10, 0); len(replay) != 1 {
 		t.Fatalf("Replay = %d, want 1", len(replay))
 	}
 }
@@ -613,7 +613,7 @@ func TestPurgeMessages(t *testing.T) {
 		t.Fatalf("PurgeMessages = %d, want 2 (the acked and dead messages)", n)
 	}
 
-	replay, err := s.Replay(ctx, "ws", "bob", 10)
+	replay, err := s.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestReplayReturnsOldestFirst(t *testing.T) {
 		t.Fatalf("Ack: %v", err)
 	}
 
-	all, err := s.Replay(ctx, "ws", "bob", 10)
+	all, err := s.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}
@@ -700,7 +700,7 @@ func TestReplayReturnsOldestFirst(t *testing.T) {
 	}
 
 	// A limit keeps the most recent, still ascending.
-	tail, err := s.Replay(ctx, "ws", "bob", 2)
+	tail, err := s.Replay(ctx, "ws", "bob", 2, 0)
 	if err != nil {
 		t.Fatalf("Replay(2): %v", err)
 	}
@@ -828,7 +828,7 @@ func TestConcurrentSendAndRead(t *testing.T) {
 	if n, err := s.PendingCount(ctx, "ws", "bob"); err != nil || n != 0 {
 		t.Errorf("PendingCount = %d, %v; want 0, nil", n, err)
 	}
-	replay, err := s.Replay(ctx, "ws", "bob", total+10)
+	replay, err := s.Replay(ctx, "ws", "bob", total+10, 0)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}

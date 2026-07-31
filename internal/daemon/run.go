@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"os"
@@ -16,6 +17,11 @@ import (
 	"github.com/praneethravuri/tether/internal/protocol"
 	"github.com/praneethravuri/tether/internal/store"
 )
+
+// ErrAlreadyRunning marks every "a daemon already holds this socket" failure
+// (lock held or live), so a caller can map it to a conflict rather than a
+// general error regardless of which of the two checks caught it.
+var ErrAlreadyRunning = errors.New("a daemon is already running")
 
 // Run resolves the socket and database paths, guards against a second
 // daemon, and serves until interrupted or terminated.
@@ -89,3 +95,4 @@ func daemonIsLive(path string) bool {
 type startupError struct{ msg string }
 
 func (e *startupError) Error() string { return e.msg }
+func (e *startupError) Unwrap() error { return ErrAlreadyRunning }
