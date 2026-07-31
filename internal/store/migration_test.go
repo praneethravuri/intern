@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -128,10 +129,8 @@ func TestMigrateV1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw v1 db: %v", err)
 	}
-	for _, stmt := range splitStatements(schemaV1) {
-		if _, err := raw.ExecContext(ctx, stmt); err != nil {
-			t.Fatalf("apply v1 schema %.60q: %v", stmt, err)
-		}
+	if _, err := raw.ExecContext(ctx, schemaV1); err != nil {
+		t.Fatalf("apply v1 schema: %v", err)
 	}
 	if _, err := raw.ExecContext(ctx, `
 INSERT INTO agents (workspace, name, harness, session_id, cwd, pid, notifier, tier, state, last_tool, registered_at, last_seen)
@@ -185,8 +184,8 @@ VALUES ('01AAAA', '01AAAA', '', 'bob', 'ws', 'alice', 'ws', 'note', 'hello', '',
 	if err := s.w.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("read schema_version: %v", err)
 	}
-	if version != "3" {
-		t.Errorf("schema_version = %q, want %q", version, "3")
+	if version != "4" {
+		t.Errorf("schema_version = %q, want %q", version, "4")
 	}
 
 	// The pre-existing rows must have survived the migration, defaults and
@@ -272,10 +271,8 @@ func TestMigrateV2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw v2 db: %v", err)
 	}
-	for _, stmt := range splitStatements(schemaV2) {
-		if _, err := raw.ExecContext(ctx, stmt); err != nil {
-			t.Fatalf("apply v2 schema %.60q: %v", stmt, err)
-		}
+	if _, err := raw.ExecContext(ctx, schemaV2); err != nil {
+		t.Fatalf("apply v2 schema: %v", err)
 	}
 	if _, err := raw.ExecContext(ctx, `
 INSERT INTO agents (workspace, name, harness, session_id, cwd, pid, pid_start, dropped, registered_at, last_seen)
@@ -317,8 +314,8 @@ VALUES ('ws', 'alice', 'send', 'bob@ws', 1800)`); err != nil {
 	if err := s.w.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("read schema_version: %v", err)
 	}
-	if version != "3" {
-		t.Errorf("schema_version = %q, want %q", version, "3")
+	if version != "4" {
+		t.Errorf("schema_version = %q, want %q", version, "4")
 	}
 
 	a, err := s.GetAgent(ctx, "ws", "alice")
@@ -358,8 +355,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 		if err := s.w.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 			t.Fatalf("Open #%d: read schema_version: %v", i+1, err)
 		}
-		if version != "3" {
-			t.Fatalf("Open #%d: schema_version = %q, want %q", i+1, version, "3")
+		if version != "4" {
+			t.Fatalf("Open #%d: schema_version = %q, want %q", i+1, version, "4")
 		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("Close #%d: %v", i+1, err)
@@ -397,5 +394,116 @@ func TestRegisterStaleCutoffInFuture(t *testing.T) {
 	}
 	if got.SessionID != "sess-2" {
 		t.Errorf("future cutoff did not force takeover: %+v", got)
+	}
+}
+
+// TestOpen_RefusesNewerSchemaVersion is 6.13's version-check half: an older
+// binary opening a database a newer one already migrated must refuse
+// outright, not silently continue against a shape it doesn't know.
+func TestOpen_RefusesNewerSchemaVersion(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "future.db")
+
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT`); err != nil {
+		t.Fatalf("create meta: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('schema_version', '999')`); err != nil {
+		t.Fatalf("seed future version: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	if _, err := Open(ctx, path); err == nil {
+		t.Fatal("Open on a database stamped with a future schema version: want error, got nil")
+	} else if !strings.Contains(err.Error(), "999") {
+		t.Errorf("error %q does not name the offending version", err)
+	}
+
+	// The refusal happens before any DDL runs, inside one transaction that
+	// then rolls back -- nothing else should exist in this database.
+	raw2, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("reopen raw db: %v", err)
+	}
+	defer func() { _ = raw2.Close() }()
+	var n int
+	if err := raw2.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agents'`).Scan(&n); err != nil {
+		t.Fatalf("check agents table: %v", err)
+	}
+	if n != 0 {
+		t.Error("agents table exists even though the migration was refused -- it did not roll back cleanly")
+	}
+}
+
+// TestMigrateV3ToV4_DedupesCollidingSessionsBeforeIndexing is 6.15: the new
+// unique index on (workspace, session_id) would fail outright over a
+// pre-existing collision, so migration must dedupe first. The row with the
+// higher rowid (the one inserted more recently) survives.
+func TestMigrateV3ToV4_DedupesCollidingSessionsBeforeIndexing(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "collide.db")
+
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, schemaV2); err != nil {
+		t.Fatalf("apply v2 schema: %v", err)
+	}
+	// Two different names, same workspace and session_id -- the bug 6.15
+	// describes: qFindNameBySession could already return either one.
+	if _, err := raw.ExecContext(ctx, `
+INSERT INTO agents (workspace, name, harness, session_id, cwd, pid, pid_start, dropped, registered_at, last_seen)
+VALUES ('ws', 'stale-name', 'claude-code', 'sess-1', '/a', 1, 0, 0, 1000, 1000)`); err != nil {
+		t.Fatalf("insert first colliding row: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, `
+INSERT INTO agents (workspace, name, harness, session_id, cwd, pid, pid_start, dropped, registered_at, last_seen)
+VALUES ('ws', 'fresh-name', 'claude-code', 'sess-1', '/b', 2, 0, 0, 2000, 2000)`); err != nil {
+		t.Fatalf("insert second colliding row: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open (should dedupe and succeed): %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if !hasIndex(t, s.w, "agents", "idx_agents_session") {
+		t.Error("idx_agents_session was not created")
+	}
+
+	if _, err := s.GetAgent(ctx, "ws", "stale-name"); !errors.Is(err, ErrNoSuchAgent) {
+		t.Errorf("GetAgent(stale-name) = %v, want ErrNoSuchAgent (the lower-rowid duplicate should be gone)", err)
+	}
+	if _, err := s.GetAgent(ctx, "ws", "fresh-name"); err != nil {
+		t.Errorf("GetAgent(fresh-name) = %v, want the surviving row", err)
+	}
+
+	// The index actually enforces uniqueness going forward, not just exists.
+	if err := s.Register(ctx, Agent{Workspace: "ws", Name: "third-name", SessionID: "sess-1", Cwd: "/c"},
+		time.Time{}); err == nil {
+		t.Error("Register with a session_id already held under a different name: want error, got nil")
+	}
+}
+
+// TestMigrateV3ToV4_WidensIdxInbox proves idx_inbox now covers dead, and
+// idx_messages_created_at exists for the two sweep queries.
+func TestMigrateV3ToV4_WidensIdxInbox(t *testing.T) {
+	s := newStore(t)
+	if !hasIndex(t, s.w, "messages", "idx_inbox") {
+		t.Error("idx_inbox is missing")
+	}
+	if !hasIndex(t, s.w, "messages", "idx_messages_created_at") {
+		t.Error("idx_messages_created_at was not created")
 	}
 }

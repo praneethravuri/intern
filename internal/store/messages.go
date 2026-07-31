@@ -135,58 +135,74 @@ func (s *Store) enforceInboxDepth(ctx context.Context, tx *sql.Tx, ws, name, kee
 	return nil
 }
 
+// queryer is satisfied by *sql.DB, *sql.Tx, and the read pool.
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// fetchPending runs qInbox and scans every row, the read half Inbox and
+// Drain otherwise duplicated between them.
+func fetchPending(ctx context.Context, q queryer, ws, name string, limit int) ([]Message, error) {
+	rows, err := q.QueryContext(ctx, qInbox, ws, name, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]Message, 0, limit)
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// stampDelivered marks every id delivered in one round trip. ids must be
+// non-empty; callers already know that from building the slice.
+func stampDelivered(ctx context.Context, ex execer, nowMS int64, ids []string) error {
+	placeholders := "(" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, nowMS)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := ex.ExecContext(ctx, qStampDeliveredPrefix+placeholders, args...)
+	return err
+}
+
 // Inbox returns the recipient's pending mail, oldest first, stamping
 // delivered_at on first delivery. Not destructive: unacked mail is returned
-// again on every call.
+// again on every call. Reads from the pool, not the single-connection
+// writer -- only the delivered stamp, if anything needs it, touches the
+// writer, and as one batched statement rather than one per message.
 func (s *Store) Inbox(ctx context.Context, ws, name string, limit int) ([]Message, error) {
 	if limit <= 0 {
 		limit = defaultInboxLimit
 	}
 
-	tx, err := s.w.BeginTx(ctx, nil)
+	out, err := fetchPending(ctx, s.r, ws, name, limit)
 	if err != nil {
-		return nil, fmt.Errorf("store: inbox: %w", err)
-	}
-	defer s.rollback(tx)
-
-	rows, err := tx.QueryContext(ctx, qInbox, ws, name, limit)
-	if err != nil {
-		return nil, fmt.Errorf("store: inbox: %w", err)
-	}
-
-	// The write pool has one connection; the cursor must close before any UPDATE.
-	out := make([]Message, 0, limit)
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			_ = rows.Close()
-			return nil, fmt.Errorf("store: inbox: %w", err)
-		}
-		out = append(out, m)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, fmt.Errorf("store: inbox: %w", err)
-	}
-	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("store: inbox: %w", err)
 	}
 
 	now := s.now()
 	nowMS := now.UnixMilli()
+	var undelivered []string
 	for i := range out {
 		if out[i].DeliveredAt != nil {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, qStampDelivered, nowMS, out[i].ID); err != nil {
-			return nil, fmt.Errorf("store: inbox: stamp delivered: %w", err)
-		}
+		undelivered = append(undelivered, out[i].ID)
 		t := now
 		out[i].DeliveredAt = &t
 	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("store: inbox: commit: %w", err)
+	if len(undelivered) > 0 {
+		if err := stampDelivered(ctx, s.w, nowMS, undelivered); err != nil {
+			return nil, fmt.Errorf("store: inbox: stamp delivered: %w", err)
+		}
 	}
 	return out, nil
 }
@@ -285,39 +301,26 @@ func (s *Store) Drain(ctx context.Context, ws, name string, limit int) (msgs []M
 	}
 	defer s.rollback(tx)
 
-	rows, err := tx.QueryContext(ctx, qInbox, ws, name, limit)
+	out, err := fetchPending(ctx, tx, ws, name, limit)
 	if err != nil {
-		return nil, 0, fmt.Errorf("store: drain: %w", err)
-	}
-
-	out := make([]Message, 0, limit)
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			_ = rows.Close()
-			return nil, 0, fmt.Errorf("store: drain: %w", err)
-		}
-		out = append(out, m)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, 0, fmt.Errorf("store: drain: %w", err)
-	}
-	if err := rows.Close(); err != nil {
 		return nil, 0, fmt.Errorf("store: drain: %w", err)
 	}
 
 	now := s.now()
 	nowMS := now.UnixMilli()
 	ids := make([]string, len(out))
+	var undelivered []string
 	for i := range out {
 		ids[i] = out[i].ID
 		if out[i].DeliveredAt == nil {
-			if _, err := tx.ExecContext(ctx, qStampDelivered, nowMS, out[i].ID); err != nil {
-				return nil, 0, fmt.Errorf("store: drain: stamp delivered: %w", err)
-			}
+			undelivered = append(undelivered, out[i].ID)
 			t := now
 			out[i].DeliveredAt = &t
+		}
+	}
+	if len(undelivered) > 0 {
+		if err := stampDelivered(ctx, tx, nowMS, undelivered); err != nil {
+			return nil, 0, fmt.Errorf("store: drain: stamp delivered: %w", err)
 		}
 	}
 
