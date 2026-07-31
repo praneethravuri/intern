@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/praneethravuri/tether/internal/daemon"
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 // daemonBanner is the text printed once before the daemon blocks, kept as a

@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/praneethravuri/tether/internal/protocol"
 	"github.com/praneethravuri/tether/internal/store"
-	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 // Run resolves the socket and database paths, guards against a second

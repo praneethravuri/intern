@@ -28,11 +28,34 @@ func TestAuthenticate_SessionMismatchIsRejected(t *testing.T) {
 	if err := ts.srv.authenticate(ctx, "ws", "alice", "s1"); err != nil {
 		t.Fatalf("authenticate with the matching session: %v", err)
 	}
-	if err := ts.srv.authenticate(ctx, "ws", "alice", ""); err != nil {
-		t.Fatalf("authenticate with an empty claimed session: %v", err)
+	// alice's stored session is non-empty ("s1"), so an empty claim must not
+	// pass -- that is exactly the bypass this check exists to close.
+	if err := ts.srv.authenticate(ctx, "ws", "alice", ""); err == nil {
+		t.Fatal("authenticate with an empty claim against a non-empty stored session: want error, got nil")
 	}
-	if err := ts.srv.authenticate(ctx, "ws", "ghost", "anything"); err != nil {
-		t.Fatalf("authenticate against an unregistered agent: %v", err)
+	// An unregistered agent is never authenticated as itself: there is no
+	// stored session to have matched.
+	if err := ts.srv.authenticate(ctx, "ws", "ghost", "anything"); err == nil {
+		t.Fatal("authenticate against an unregistered agent: want error, got nil")
+	}
+}
+
+// TestAuthenticate_BothSessionsEmptyIsAllowed covers the one legitimate empty
+// case: an agent registered with no session recorded (an unrecognised
+// harness that could not synthesise one) can still act as itself as long as
+// every caller likewise claims no session.
+func TestAuthenticate_BothSessionsEmptyIsAllowed(t *testing.T) {
+	ts := newTestServer(t, nil)
+	ctx := context.Background()
+
+	if err := ts.store.Register(ctx, store.Agent{Workspace: "ws", Name: "alice", SessionID: "", Cwd: "/a"}, time.Time{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := ts.srv.authenticate(ctx, "ws", "alice", ""); err != nil {
+		t.Fatalf("authenticate with both sessions empty: %v", err)
+	}
+	if err := ts.srv.authenticate(ctx, "ws", "alice", "s1"); err == nil {
+		t.Fatal("authenticate claiming a session against an empty stored one: want error, got nil")
 	}
 }
 

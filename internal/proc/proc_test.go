@@ -2,6 +2,7 @@ package proc
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 )
 
@@ -18,6 +19,18 @@ func TestAlive_ImplausiblePIDIsNotAlive(t *testing.T) {
 	}
 	if Alive(0) || Alive(-1) {
 		t.Fatal("Alive accepted a non-positive pid")
+	}
+}
+
+// pid 1 (init/launchd) always exists but, run as non-root, cannot be
+// signalled -- that must read as not-alive, not as "alive because some error
+// other than ESRCH came back".
+func TestAlive_EPERMDoesNotReadAsAlive(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: signalling pid 1 would succeed, not EPERM")
+	}
+	if Alive(1) {
+		t.Fatal("Alive(1) = true, want false: pid 1 exists but is not ours, which must not count as alive")
 	}
 }
 
@@ -77,5 +90,44 @@ func TestStartTimeOfSelf(t *testing.T) {
 func TestStartTimeOfImplausiblePIDErrors(t *testing.T) {
 	if _, err := StartTime(1 << 30); err == nil {
 		t.Fatal("StartTime(implausible pid): want error, got nil")
+	}
+}
+
+func TestSameSession_SelfCounts(t *testing.T) {
+	self := os.Getpid()
+	if !SameSession(self, self) {
+		t.Fatal("SameSession(self, self) = false, want true")
+	}
+}
+
+// exec.Command does not call setsid, so a freshly spawned child inherits the
+// test binary's session -- exactly the relationship a shell and the
+// long-lived processes it launches share in practice.
+func TestSameSession_RealChildSharesTheParentsSession(t *testing.T) {
+	child := exec.Command("sleep", "5")
+	if err := child.Start(); err != nil {
+		t.Skipf("cannot start a child process in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+
+	if !SameSession(os.Getpid(), child.Process.Pid) {
+		t.Fatalf("SameSession(self, child pid %d) = false, want true", child.Process.Pid)
+	}
+}
+
+func TestSameSession_UnrelatedPIDIsNotTheSameSession(t *testing.T) {
+	const implausible = 1 << 30
+	if SameSession(implausible, os.Getpid()) {
+		t.Fatal("SameSession(implausible pid, self) = true, want false")
+	}
+}
+
+func TestSameSession_ZeroOrNegativeAreNeverInAnySession(t *testing.T) {
+	self := os.Getpid()
+	if SameSession(0, self) || SameSession(-1, self) {
+		t.Fatal("SameSession accepted a non-positive pid")
+	}
+	if SameSession(self, 0) || SameSession(self, -1) {
+		t.Fatal("SameSession accepted a non-positive pid")
 	}
 }
