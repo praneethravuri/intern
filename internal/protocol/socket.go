@@ -47,6 +47,23 @@ func DBPath() (string, error) {
 	return filepath.Join(dir, "tether.db"), nil
 }
 
+// LogPath resolves where the daemon's log lives: ~/.tether/daemon.log. This
+// is the file every bug report starts with, so its location never varies
+// with how the daemon was started.
+func LogPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not find home dir: %w", err)
+	}
+
+	dir := filepath.Join(home, ".tether")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("mkdir: %w", err)
+	}
+
+	return filepath.Join(dir, "daemon.log"), nil
+}
+
 // Listen creates the private 0700 directory that holds the socket, removes
 // any stale socket file, and binds inside it (see bindSocket for the
 // platform-specific file permissions).

@@ -76,6 +76,32 @@ func (s *Store) Register(ctx context.Context, a Agent, staleCutoff time.Time) er
 	return nil
 }
 
+// ReclaimAgent overwrites workspace/name only if it still holds exactly the
+// incumbent identity the caller observed (pid, pid_start) -- a compare-and-
+// swap that closes the gap between confirming an incumbent dead and acting
+// on it, where a third party could otherwise have already reclaimed or
+// revived the row. A false return means the row moved; the caller's
+// conflict is real and should be reported as such, not silently ignored.
+func (s *Store) ReclaimAgent(ctx context.Context, a Agent, incumbentPID int, incumbentPIDStart int64) (bool, error) {
+	if err := normalize(&a); err != nil {
+		return false, err
+	}
+
+	nowMS := s.nowMS()
+	res, err := s.w.ExecContext(ctx, qReclaimAgent,
+		a.Harness, a.SessionID, a.Cwd, a.PID, a.PIDStart, nowMS, nowMS,
+		a.Workspace, a.Name, incumbentPID, incumbentPIDStart,
+	)
+	if err != nil {
+		return false, fmt.Errorf("store: reclaim %s: %w", a.Address(), err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("store: reclaim %s: %w", a.Address(), err)
+	}
+	return n > 0, nil
+}
+
 // Heartbeat refreshes last_seen and last_kind, then reports how many
 // messages are waiting. note is only applied when non-empty -- an empty note
 // leaves last_note as it was, so a caller with nothing to say about "what are
@@ -131,9 +157,10 @@ func (s *Store) FindNameBySession(ctx context.Context, ws, session string) (stri
 // would, and moves its pending mail's to_name along in the same transaction
 // -- so no orphan row is left holding mail nobody will read. It returns the
 // name the session held before the rename. ErrNoSuchAgent means the session
-// holds nothing to rename; ErrNameTaken means a different session already
-// holds a.Name.
-func (s *Store) Rename(ctx context.Context, a Agent) (oldName string, err error) {
+// holds nothing to rename; ErrNameTaken means a different, still-fresh
+// session holds a.Name (staleCutoff gives a dead holder's name back, the
+// same reclaim path Register already has).
+func (s *Store) Rename(ctx context.Context, a Agent, staleCutoff time.Time) (oldName string, err error) {
 	if err := normalize(&a); err != nil {
 		return "", err
 	}
@@ -152,6 +179,22 @@ func (s *Store) Rename(ctx context.Context, a Agent) (oldName string, err error)
 			return "", fmt.Errorf("%w: no agent in %s for this session", ErrNoSuchAgent, a.Workspace)
 		}
 		return "", fmt.Errorf("store: rename: find: %w", err)
+	}
+
+	if a.Name != oldName {
+		target, getErr := scanAgent(tx.QueryRowContext(ctx, qGetAgent, a.Workspace, a.Name))
+		switch {
+		case errors.Is(getErr, sql.ErrNoRows):
+			// target name free
+		case getErr != nil:
+			return "", fmt.Errorf("store: rename: check target: %w", getErr)
+		case target.SessionID != a.SessionID && target.LastSeen.Before(staleCutoff):
+			// Evicted here, inside the transaction, so qRenameAgent's UPDATE
+			// below never collides with the row it's about to replace.
+			if _, err := tx.ExecContext(ctx, qDeleteAgent, a.Workspace, a.Name); err != nil {
+				return "", fmt.Errorf("store: rename: evict stale target: %w", err)
+			}
+		}
 	}
 
 	nowMS := s.nowMS()

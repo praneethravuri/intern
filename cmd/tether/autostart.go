@@ -5,19 +5,15 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 const (
 	autoStartPollInterval = 20 * time.Millisecond
 	autoStartTimeout      = 3 * time.Second
-
-	// daemonLogMaxBytes caps the auto-started daemon's log; past this it is
-	// truncated on the next start rather than rotated, since it is a
-	// diagnostic tail, not an audit trail.
-	daemonLogMaxBytes = 1 << 20
 )
 
 // spawnDaemon starts a detached daemon and blocks until sock is dialable.
@@ -33,11 +29,14 @@ func autoStartDaemon(sock string) error {
 		return fmt.Errorf("cannot find my own executable: %w", err)
 	}
 
-	logPath, err := daemonLogPath()
+	// Only a safety net for anything printed before the daemon's own
+	// rotating structured logger takes over -- the daemon owns rotation of
+	// this same file once it's running (internal/daemon's sweep loop).
+	logPath, err := protocol.LogPath()
 	if err != nil {
 		return err
 	}
-	logFile, err := openDaemonLog(logPath)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -72,28 +71,4 @@ func autoStartDaemon(sock string) error {
 		time.Sleep(autoStartPollInterval)
 	}
 	return fmt.Errorf("did not become reachable within %s", autoStartTimeout)
-}
-
-// daemonLogPath is where an auto-started daemon's stdout/stderr go, since it
-// has no terminal of its own to log to.
-func daemonLogPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".tether", "daemon.log"), nil
-}
-
-// openDaemonLog appends to path, truncating first if it has grown past
-// daemonLogMaxBytes.
-func openDaemonLog(path string) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	if info, err := os.Stat(path); err == nil && info.Size() > daemonLogMaxBytes {
-		if err := os.Remove(path); err != nil {
-			return nil, err
-		}
-	}
-	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
