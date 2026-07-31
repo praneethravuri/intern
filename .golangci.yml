@@ -46,3 +46,9 @@ linters:
         linters:
           - unparam
         text: "setIdentity"
+      # wsname execs the fixed "git" binary with args built from a resolved
+      # local path, never untrusted input.
+      - path: internal/wsname/wsname(_test)?\.go
+        linters:
+          - gosec
+        text: "G204"
