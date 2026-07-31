@@ -253,9 +253,29 @@ func (s *Store) ListAgents(ctx context.Context, ws string, staleAfter time.Durat
 	return out, nil
 }
 
-// DeleteAgents removes the given agent rows in one statement and reports how
-// many were removed.
+// deleteAgentsChunk bounds how many keys go into one statement -- 2 bound
+// params per key, well under even a conservative SQLITE_MAX_VARIABLE_NUMBER.
+// Unlike Inbox/Drain's message ids, sweepDeadAgents' key count isn't bounded
+// by any request-facing limit, so this one genuinely needs chunking.
+const deleteAgentsChunk = 400
+
+// DeleteAgents removes the given agent rows, chunked to stay under SQLite's
+// bound-parameter limit, and reports how many were removed in total.
 func (s *Store) DeleteAgents(ctx context.Context, keys []AgentKey) (int, error) {
+	total := 0
+	for len(keys) > 0 {
+		n := min(len(keys), deleteAgentsChunk)
+		deleted, err := s.deleteAgentsOnce(ctx, keys[:n])
+		if err != nil {
+			return total, err
+		}
+		total += deleted
+		keys = keys[n:]
+	}
+	return total, nil
+}
+
+func (s *Store) deleteAgentsOnce(ctx context.Context, keys []AgentKey) (int, error) {
 	if len(keys) == 0 {
 		return 0, nil
 	}
