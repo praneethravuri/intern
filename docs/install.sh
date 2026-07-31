@@ -65,10 +65,13 @@ main() {
 
 	mv "${tmp_dir}/tether" "${install_dir}/tether"
 	chmod 0755 "${install_dir}/tether"
-	# Best-effort: this binary is cross-compiled on Linux runners, so it
-	# carries no Apple notarization ticket.
-	if [ "$os" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
-		xattr -d com.apple.quarantine "${install_dir}/tether" 2>/dev/null || true
+	# Not notarized, so macOS quarantines it -- left in place on purpose,
+	# since it's the one control that would catch a tampered release.
+	if [ "$os" = "darwin" ]; then
+		echo
+		echo "tether: this binary isn't notarized, so macOS will prompt on first launch."
+		echo "        Already verified the checksum above? Skip the prompt with:"
+		echo "          xattr -d com.apple.quarantine ${install_dir}/tether"
 	fi
 
 	# tetherd was a separate binary before v0.2.0; tether now serves both
@@ -102,9 +105,10 @@ main() {
 # fetch <url> <output path>
 fetch() {
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --proto '=https' --tlsv1.2 "$1" -o "$2"
+		# --proto '=https' governs the initial URL only; --proto-redir covers redirects too.
+		curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 "$1" -o "$2"
 	elif command -v wget >/dev/null 2>&1; then
-		wget -q "$1" -O "$2"
+		wget -q --https-only "$1" -O "$2"
 	else
 		echo "tether: need curl or wget to install" >&2
 		exit 1
@@ -117,7 +121,7 @@ verify_checksum() {
 	checksums="$2"
 	name="$3"
 
-	expected="$(grep " ${name}\$" "$checksums" | awk '{print $1}')"
+	expected="$(grep -F " ${name}" "$checksums" | awk '{print $1}')"
 	if [ -z "$expected" ]; then
 		echo "tether: no checksum entry for ${name}" >&2
 		exit 1
