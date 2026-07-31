@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 // hostileBody is the kind of text a language model actually writes: quotes,

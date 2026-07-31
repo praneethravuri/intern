@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 const lsLong = `List the agents registered with the daemon, and what each one is doing.

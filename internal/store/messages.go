@@ -104,7 +104,7 @@ func (s *Store) Send(ctx context.Context, m Message) (string, error) {
 		return "", fmt.Errorf("store: send: insert: %w", err)
 	}
 
-	if err := s.enforceInboxDepth(ctx, tx, m.ToWS, m.ToName); err != nil {
+	if err := s.enforceInboxDepth(ctx, tx, m.ToWS, m.ToName, newID); err != nil {
 		return "", fmt.Errorf("store: send: %w", err)
 	}
 
@@ -115,9 +115,9 @@ func (s *Store) Send(ctx context.Context, m Message) (string, error) {
 }
 
 // enforceInboxDepth marks the oldest excess over maxInboxDepth dead and
-// bumps agents.dropped; the message just inserted has the highest id, so it
-// is never among those dropped.
-func (s *Store) enforceInboxDepth(ctx context.Context, tx *sql.Tx, ws, name string) error {
+// bumps agents.dropped. keepID is the message just inserted, excluded from
+// eviction so it can never be the thing it displaces.
+func (s *Store) enforceInboxDepth(ctx context.Context, tx *sql.Tx, ws, name, keepID string) error {
 	var count int
 	if err := tx.QueryRowContext(ctx, qPendingCount, ws, name).Scan(&count); err != nil {
 		return fmt.Errorf("count pending: %w", err)
@@ -126,7 +126,7 @@ func (s *Store) enforceInboxDepth(ctx context.Context, tx *sql.Tx, ws, name stri
 	if excess <= 0 {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, qDropOldest, ws, name, excess); err != nil {
+	if _, err := tx.ExecContext(ctx, qDropOldest, ws, name, keepID, excess); err != nil {
 		return fmt.Errorf("drop oldest: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, qIncrementDropped, excess, ws, name); err != nil {

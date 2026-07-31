@@ -19,9 +19,15 @@ const (
 	CodeConflict = 409
 	// CodeTooLarge means the request or message body exceeded the limit.
 	CodeTooLarge = 413
+	// CodeVersionMismatch means Request.V doesn't match the daemon's version --
+	// typically a CLI auto-starting a daemon a different binary already started.
+	CodeVersionMismatch = 426
 	// CodeInternal means the daemon failed for a reason the caller cannot fix.
 	CodeInternal = 500
 )
+
+// Version is the current wire protocol version, required on every Request.
+const Version = 1
 
 // Method names. No unregister or heartbeat: every command implicitly
 // re-registers, and a dead-agent sweep replaces explicit unregister.
@@ -35,9 +41,11 @@ const (
 )
 
 // Request represents an incoming command from an agent. Params stays raw so
-// the daemon can dispatch on Method before decoding the payload.
+// the daemon can dispatch on Method before decoding the payload; V is
+// checked against Version before that, so a version skew fails loudly.
 type Request struct {
 	ID     string          `json:"id"`
+	V      int             `json:"v"`
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params,omitempty"`
 }

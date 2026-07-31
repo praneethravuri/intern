@@ -8,14 +8,16 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/praneethravuri/tether/internal/protocol"
 	"github.com/praneethravuri/tether/internal/store"
-	"github.com/praneethravuri/tether/pkg/protocol"
 )
 
 // fakeClock is a mutex-guarded fake clock so tests can fast-forward past
@@ -156,6 +158,10 @@ type client struct {
 	enc  *json.Encoder
 	dec  *json.Decoder
 	seq  int
+	// sessions maps a registered name to the session it was registered
+	// with, so the send/inbox/wait helpers below can authenticate as
+	// themselves without every call site repeating it.
+	sessions map[string]string
 }
 
 func (ts *testServer) dial() *client {
@@ -177,7 +183,7 @@ func (c *client) call(method string, params any) protocol.Response {
 	c.seq++
 	id := fmt.Sprintf("r%d", c.seq)
 
-	req := protocol.Request{ID: id, Method: method}
+	req := protocol.Request{ID: id, V: protocol.Version, Method: method}
 	if params != nil {
 		raw, err := json.Marshal(params)
 		if err != nil {
@@ -232,6 +238,10 @@ func (c *client) register(name, ws, session string) protocol.RegisterResult {
 	c.mustCall(protocol.MethodRegister, protocol.RegisterParams{
 		Name: name, Workspace: ws, Harness: "test", SessionID: session, Cwd: "/tmp", PID: os.Getpid(),
 	}, &out)
+	if c.sessions == nil {
+		c.sessions = map[string]string{}
+	}
+	c.sessions[out.Name] = session
 	return out
 }
 
@@ -239,7 +249,8 @@ func (c *client) send(body string) string {
 	c.t.Helper()
 	var out protocol.SendResult
 	c.mustCall(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "bob", ToWorkspace: "proj", Body: body,
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "bob", ToWorkspace: "proj", Body: body,
 	}, &out)
 	return out.MessageID
 }
@@ -250,7 +261,7 @@ func (c *client) inbox(name string, replay bool) []protocol.MessageView {
 	c.t.Helper()
 	var out protocol.InboxResult
 	c.mustCall(protocol.MethodInbox, protocol.InboxParams{
-		Name: name, Workspace: "proj", Limit: 500, Replay: replay,
+		Name: name, Workspace: "proj", Session: c.sessions[name], Limit: 500, Replay: replay,
 	}, &out)
 	return out.Messages
 }
@@ -259,7 +270,7 @@ func (c *client) inboxPeek(name string) []protocol.MessageView {
 	c.t.Helper()
 	var out protocol.InboxResult
 	c.mustCall(protocol.MethodInbox, protocol.InboxParams{
-		Name: name, Workspace: "proj", Limit: 500, Peek: true,
+		Name: name, Workspace: "proj", Session: c.sessions[name], Limit: 500, Peek: true,
 	}, &out)
 	return out.Messages
 }
@@ -404,7 +415,8 @@ func TestRegister_ExplicitNameRenamesAndMovesMail(t *testing.T) {
 	c.register("alice", "proj", "sess-1")
 	c.register("bob", "proj", "sess-2")
 	c.mustCall(protocol.MethodSend, protocol.SendParams{
-		FromName: "bob", FromWorkspace: "proj", ToName: "alice", ToWorkspace: "proj", Body: "hi",
+		FromName: "bob", FromWorkspace: "proj", FromSession: "sess-2",
+		ToName: "alice", ToWorkspace: "proj", Body: "hi",
 	}, nil)
 
 	got := c.register("frontend", "proj", "sess-1")
@@ -552,6 +564,48 @@ func TestRegister_LiveIncumbentStillConflicts(t *testing.T) {
 	}, protocol.CodeConflict)
 }
 
+// TestRegister_PIDInADifferentSessionIsRejected is 6.3: a claimed session pid
+// that is alive but demonstrably not this connection and not in its session
+// (a process detached into its own session, the shape PID 1 or a stolen
+// victim pid would also take) must be rejected rather than trusted outright.
+func TestRegister_PIDInADifferentSessionIsRejected(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	detached := exec.Command("sleep", "5")
+	detached.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := detached.Start(); err != nil {
+		t.Skipf("cannot start a detached process in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = detached.Process.Kill(); _ = detached.Wait() })
+
+	e := c.mustFail(protocol.MethodRegister, protocol.RegisterParams{
+		Name: "alice", Workspace: "proj", Harness: "test", SessionID: "s1", PID: detached.Process.Pid,
+	}, protocol.CodeBadRequest)
+	if !strings.Contains(e.Message, fmt.Sprint(detached.Process.Pid)) {
+		t.Fatalf("error message %q does not name the rejected pid", e.Message)
+	}
+}
+
+// TestRegister_PIDSharingTheConnectionsSessionIsAccepted is the positive
+// mirror: a pid that is not the connection's own peer pid, but was launched
+// by the same shell (an ordinary child process, no setsid), must still be
+// accepted -- ancestry is not required, only a shared session.
+func TestRegister_PIDSharingTheConnectionsSessionIsAccepted(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	sibling := exec.Command("sleep", "5")
+	if err := sibling.Start(); err != nil {
+		t.Skipf("cannot start a child process in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = sibling.Process.Kill(); _ = sibling.Wait() })
+
+	c.mustCall(protocol.MethodRegister, protocol.RegisterParams{
+		Name: "bob", Workspace: "proj", Harness: "test", SessionID: "s2", PID: sibling.Process.Pid,
+	}, &protocol.RegisterResult{})
+}
+
 // -- authentication -----------------------------------------------------------
 
 // TestSend_SessionMismatchIsConflict is the other P1 fix: a sender claiming
@@ -575,10 +629,12 @@ func TestSend_SessionMismatchIsConflict(t *testing.T) {
 	}, &protocol.SendResult{})
 }
 
-// TestSend_EmptyStoredSessionStillAllowed covers the legacy/no-session row:
-// a sender whose stored session_id is empty (registered before session
-// authentication existed, or by a caller that never supplied one) must not
-// be locked out by this phase's change.
+// TestSend_EmptyStoredSessionStillAllowed covers the legacy/no-session row: a
+// sender whose stored session_id is empty (an unrecognised harness that could
+// not synthesise one) can still act as itself as long as it likewise claims
+// no session -- but an empty stored session is not a wildcard: claiming any
+// session against it must still be rejected, which is the exact bypass this
+// phase closes (an omitted session used to authenticate as anyone).
 func TestSend_EmptyStoredSessionStillAllowed(t *testing.T) {
 	ts := newTestServer(t, nil)
 	c := ts.dial()
@@ -588,9 +644,14 @@ func TestSend_EmptyStoredSessionStillAllowed(t *testing.T) {
 	c.register("bob", "proj", "sess-2")
 
 	c.mustCall(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", FromSession: "whatever-i-like",
+		FromName: "alice", FromWorkspace: "proj", // no FromSession, matching the empty stored one
 		ToName: "bob", ToWorkspace: "proj", Body: "hi",
 	}, &protocol.SendResult{})
+
+	_ = c.mustFail(protocol.MethodSend, protocol.SendParams{
+		FromName: "alice", FromWorkspace: "proj", FromSession: "whatever-i-like",
+		ToName: "bob", ToWorkspace: "proj", Body: "forged",
+	}, protocol.CodeConflict)
 }
 
 // TestSend_ReportsRecipientState proves a unicast send's response tells the
@@ -605,7 +666,8 @@ func TestSend_ReportsRecipientState(t *testing.T) {
 
 	var res protocol.SendResult
 	c.mustCall(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "bob", ToWorkspace: "proj", Body: "hi",
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "bob", ToWorkspace: "proj", Body: "hi",
 	}, &res)
 	if res.RecipientState != "working" {
 		t.Fatalf("RecipientState = %q, want %q (bob just registered)", res.RecipientState, "working")
@@ -614,14 +676,17 @@ func TestSend_ReportsRecipientState(t *testing.T) {
 	// Drain bob's inbox first -- wait returns immediately (never parking)
 	// when mail is already pending, which would make the next block a
 	// false pass rather than an actual test of the blocked state.
-	c.mustCall(protocol.MethodInbox, protocol.InboxParams{Name: "bob", Workspace: "proj", Limit: 10}, &protocol.InboxResult{})
+	c.mustCall(protocol.MethodInbox,
+		protocol.InboxParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], Limit: 10}, &protocol.InboxResult{})
 
 	// bob is parked in wait: blocked outranks the heartbeat-derived state.
 	bob := ts.dial()
 	waitDone := make(chan protocol.WaitResult, 1)
 	go func() {
 		var out protocol.WaitResult
-		bob.mustCall(protocol.MethodWait, protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 5000}, &out)
+		bob.mustCall(protocol.MethodWait, protocol.WaitParams{
+			Name: "bob", Workspace: "proj", Session: c.sessions["bob"], TimeoutMS: 5000,
+		}, &out)
 		waitDone <- out
 	}()
 
@@ -635,7 +700,8 @@ func TestSend_ReportsRecipientState(t *testing.T) {
 	}
 
 	c.mustCall(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "bob", ToWorkspace: "proj", Body: "hi again",
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "bob", ToWorkspace: "proj", Body: "hi again",
 	}, &res)
 	if res.RecipientState != "blocked" {
 		t.Fatalf("RecipientState = %q, want %q (bob is parked in wait)", res.RecipientState, "blocked")
@@ -653,7 +719,8 @@ func TestSend_BroadcastLeavesRecipientStateEmpty(t *testing.T) {
 
 	var res protocol.SendResult
 	c.mustCall(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "*", ToWorkspace: "proj", Body: "hi all",
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "*", ToWorkspace: "proj", Body: "hi all",
 	}, &res)
 	if res.RecipientState != "" {
 		t.Fatalf("broadcast RecipientState = %q, want empty", res.RecipientState)
@@ -806,7 +873,8 @@ func TestSend_UnknownRecipient(t *testing.T) {
 	c.register("alice", "proj", "s1")
 
 	_ = c.mustFail(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "ghost", ToWorkspace: "proj", Body: "anyone there",
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "ghost", ToWorkspace: "proj", Body: "anyone there",
 	}, protocol.CodeNotFound)
 }
 
@@ -821,7 +889,8 @@ func TestSend_UnknownRecipientTypoSuggestsTheCloseMatch(t *testing.T) {
 	c.register("backend", "proj", "s2")
 
 	e := c.mustFail(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "back", ToWorkspace: "proj", Body: "hi",
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "back", ToWorkspace: "proj", Body: "hi",
 	}, protocol.CodeNotFound)
 	if !strings.Contains(e.Message, "did you mean") || !strings.Contains(e.Message, "backend@proj") {
 		t.Fatalf("error message = %q, want a did-you-mean pointing at backend@proj", e.Message)
@@ -837,7 +906,8 @@ func TestSend_UnknownRecipientWithNoCloseMatchSuggestsNothing(t *testing.T) {
 	c.register("backend", "proj", "s2")
 
 	e := c.mustFail(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj", ToName: "zzzzzzzzzz", ToWorkspace: "proj", Body: "hi",
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+		ToName: "zzzzzzzzzz", ToWorkspace: "proj", Body: "hi",
 	}, protocol.CodeNotFound)
 	if strings.Contains(e.Message, "did you mean") {
 		t.Fatalf("error message = %q, want no did-you-mean suggestion", e.Message)
@@ -861,7 +931,7 @@ func TestSend_BroadcastReachesEveryoneButTheSender(t *testing.T) {
 
 			var out protocol.SendResult
 			c.mustCall(protocol.MethodSend, protocol.SendParams{
-				FromName: "alice", FromWorkspace: "proj",
+				FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
 				ToName: marker, ToWorkspace: "proj", Body: "heads up",
 			}, &out)
 
@@ -899,7 +969,7 @@ func TestSend_BroadcastWithOnlyTheSenderIsSuccessWithZeroDelivered(t *testing.T)
 
 	var out protocol.SendResult
 	c.mustCall(protocol.MethodSend, protocol.SendParams{
-		FromName: "alice", FromWorkspace: "proj",
+		FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
 		ToName: "*", ToWorkspace: "proj", Body: "anyone?",
 	}, &out)
 
@@ -932,7 +1002,10 @@ func TestSend_Validation(t *testing.T) {
 	c.register("bob", "proj", "s2")
 
 	base := func() protocol.SendParams {
-		return protocol.SendParams{FromName: "alice", FromWorkspace: "proj", ToName: "bob", ToWorkspace: "proj", Body: "hi"}
+		return protocol.SendParams{
+			FromName: "alice", FromWorkspace: "proj", FromSession: c.sessions["alice"],
+			ToName: "bob", ToWorkspace: "proj", Body: "hi",
+		}
 	}
 
 	empty := base()
@@ -980,7 +1053,7 @@ func TestInbox_LimitIsClampedOrRejected(t *testing.T) {
 	peek := func(limit int) int {
 		t.Helper()
 		c.mustCall(protocol.MethodInbox,
-			protocol.InboxParams{Name: "bob", Workspace: "proj", Limit: limit, Peek: true}, &out)
+			protocol.InboxParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], Limit: limit, Peek: true}, &out)
 		return len(out.Messages)
 	}
 
@@ -996,7 +1069,7 @@ func TestInbox_LimitIsClampedOrRejected(t *testing.T) {
 	// Anything past maxInboxLimit is rejected outright, not silently
 	// truncated down to it.
 	e := c.mustFail(protocol.MethodInbox,
-		protocol.InboxParams{Name: "bob", Workspace: "proj", Limit: maxInboxLimit + 1, Peek: true},
+		protocol.InboxParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], Limit: maxInboxLimit + 1, Peek: true},
 		protocol.CodeBadRequest)
 	if !strings.Contains(e.Message, fmt.Sprint(maxInboxLimit+1)) || !strings.Contains(e.Message, fmt.Sprint(maxInboxLimit)) {
 		t.Fatalf("error message %q does not name both the limit and the max", e.Message)
@@ -1070,7 +1143,7 @@ func TestWho_BlockedStateClearsOnRelease(t *testing.T) {
 	go func() {
 		var out protocol.WaitResult
 		waiter.mustCall(protocol.MethodWait, protocol.WaitParams{
-			Name: "bob", Workspace: "proj", TimeoutMS: 30000,
+			Name: "bob", Workspace: "proj", Session: setup.sessions["bob"], TimeoutMS: 30000,
 		}, &out)
 		done <- out
 	}()
@@ -1112,7 +1185,69 @@ func TestWho_BlockedStateClearsOnRelease(t *testing.T) {
 	}
 }
 
-// -- protocol robustness ----------------------------------------------------
+// -- protocol version (6.5) --------------------------------------------------
+
+// TestRequest_MissingOrWrongVersionIsRejected proves a request that omits or
+// misstates V never reaches a handler at all -- the version check runs
+// before dispatch, so a version-skewed peer gets a loud, distinct error
+// instead of Params silently decoding with whatever fields it recognises.
+func TestRequest_MissingOrWrongVersionIsRejected(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	for _, v := range []int{0, protocol.Version + 1} {
+		reg, _ := json.Marshal(protocol.RegisterParams{Name: "alice", Workspace: "proj"})
+		req := protocol.Request{ID: "v", V: v, Method: protocol.MethodRegister, Params: reg}
+		if err := c.enc.Encode(req); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		var resp protocol.Response
+		if err := c.dec.Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Error == nil || resp.Error.Code != protocol.CodeVersionMismatch {
+			t.Fatalf("v=%d: response = %+v, want a %d", v, resp, protocol.CodeVersionMismatch)
+		}
+		if !strings.Contains(resp.Error.Message, "restart") {
+			t.Fatalf("v=%d: error message %q does not tell the caller to restart the daemon", v, resp.Error.Message)
+		}
+	}
+
+	// The connection survives a version mismatch; a correctly-versioned
+	// request right after still succeeds.
+	c.register("alice", "proj", "s1")
+}
+
+// TestDecodeParams_UnknownFieldIsRejected proves an unrecognised field in
+// Params is a hard error rather than silently ignored -- the mechanism that
+// would otherwise turn, say, a future --peek flag into a destructive drain
+// against an older daemon that doesn't know the field.
+func TestDecodeParams_UnknownFieldIsRejected(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+	c.register("bob", "proj", "s1")
+
+	raw := json.RawMessage(`{"name":"bob","workspace":"proj","session":"s1","peek":true,"from_the_future":42}`)
+	req := protocol.Request{ID: "u", V: protocol.Version, Method: protocol.MethodInbox, Params: raw}
+	if err := c.enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var resp protocol.Response
+	if err := c.dec.Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Error == nil || resp.Error.Code != protocol.CodeBadRequest {
+		t.Fatalf("response = %+v, want a %d", resp, protocol.CodeBadRequest)
+	}
+	if !strings.Contains(resp.Error.Message, "from_the_future") {
+		t.Fatalf("error message %q does not name the unrecognised field", resp.Error.Message)
+	}
+
+	// Rejected before any side effect: nothing was drained.
+	if got := c.inboxPeek("bob"); len(got) != 0 {
+		t.Fatalf("inboxPeek after a rejected request = %+v, want empty (nothing sent yet)", got)
+	}
+}
 
 func TestUnknownMethod(t *testing.T) {
 	ts := newTestServer(t, nil)
@@ -1234,7 +1369,7 @@ func TestConcurrentClients(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if err := enc.Encode(protocol.Request{ID: "x", Method: method, Params: raw}); err != nil {
+				if err := enc.Encode(protocol.Request{ID: "x", V: protocol.Version, Method: method, Params: raw}); err != nil {
 					return err
 				}
 				var resp protocol.Response
@@ -1257,7 +1392,7 @@ func TestConcurrentClients(t *testing.T) {
 
 			for j := 0; j < perClient; j++ {
 				if err := call(protocol.MethodSend, protocol.SendParams{
-					FromName: name, FromWorkspace: workspace,
+					FromName: name, FromWorkspace: workspace, FromSession: name,
 					ToName: sinkName, ToWorkspace: workspace,
 					Body: fmt.Sprintf("%s/%d", name, j),
 				}); err != nil {
@@ -1315,7 +1450,8 @@ func TestWait_ReturnsImmediatelyWhenMailExists(t *testing.T) {
 
 	start := time.Now()
 	var out protocol.WaitResult
-	c.mustCall(protocol.MethodWait, protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 30000}, &out)
+	c.mustCall(protocol.MethodWait,
+		protocol.WaitParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], TimeoutMS: 30000}, &out)
 	elapsed := time.Since(start)
 
 	if out.TimedOut {
@@ -1346,7 +1482,7 @@ func TestWait_WakesOnSendFromAnotherConnection(t *testing.T) {
 		start := time.Now()
 		var out protocol.WaitResult
 		waiter.mustCall(protocol.MethodWait, protocol.WaitParams{
-			Name: "bob", Workspace: "proj", TimeoutMS: 30000,
+			Name: "bob", Workspace: "proj", Session: setup.sessions["bob"], TimeoutMS: 30000,
 		}, &out)
 		done <- result{out, time.Since(start)}
 	}()
@@ -1379,7 +1515,8 @@ func TestWait_TimesOutCleanly(t *testing.T) {
 
 	start := time.Now()
 	var out protocol.WaitResult
-	c.mustCall(protocol.MethodWait, protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 150}, &out)
+	c.mustCall(protocol.MethodWait,
+		protocol.WaitParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], TimeoutMS: 150}, &out)
 	elapsed := time.Since(start)
 
 	if !out.TimedOut {
@@ -1401,7 +1538,8 @@ func TestWait_TimesOutCleanly(t *testing.T) {
 	}
 
 	// The connection is reusable straight after a timeout.
-	c.mustCall(protocol.MethodWait, protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 50}, &out)
+	c.mustCall(protocol.MethodWait,
+		protocol.WaitParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], TimeoutMS: 50}, &out)
 	if !out.TimedOut {
 		t.Fatal("second wait did not time out")
 	}
@@ -1415,7 +1553,8 @@ func TestWait_TimeoutIsCapped(t *testing.T) {
 	start := time.Now()
 	var out protocol.WaitResult
 	// Ask for an hour; the daemon must impose its own ceiling.
-	c.mustCall(protocol.MethodWait, protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 3600000}, &out)
+	c.mustCall(protocol.MethodWait,
+		protocol.WaitParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], TimeoutMS: 3600000}, &out)
 
 	if !out.TimedOut {
 		t.Fatalf("wait result = %+v, want timed_out", out)
@@ -1442,7 +1581,8 @@ func TestWait_NotCappedWhenTheRequestFitsUnderTheCeiling(t *testing.T) {
 	c.register("bob", "proj", "s1")
 
 	var out protocol.WaitResult
-	c.mustCall(protocol.MethodWait, protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 100}, &out)
+	c.mustCall(protocol.MethodWait,
+		protocol.WaitParams{Name: "bob", Workspace: "proj", Session: c.sessions["bob"], TimeoutMS: 100}, &out)
 
 	if !out.TimedOut {
 		t.Fatalf("wait result = %+v, want timed_out", out)
@@ -1466,7 +1606,7 @@ func TestWait_ConcurrentWaitersAllWake(t *testing.T) {
 		go func() {
 			var out protocol.WaitResult
 			c.mustCall(protocol.MethodWait, protocol.WaitParams{
-				Name: "bob", Workspace: "proj", TimeoutMS: 30000,
+				Name: "bob", Workspace: "proj", Session: setup.sessions["bob"], TimeoutMS: 30000,
 			}, &out)
 			done <- out
 		}()
@@ -1505,7 +1645,7 @@ func TestWait_ConcurrentWaitersAllWake(t *testing.T) {
 func TestHandleWait_PanicStillReleasesTheWaiter(t *testing.T) {
 	srv := NewServer(nil, Config{Logger: log.New(io.Discard, "", 0)})
 
-	req := protocol.Request{ID: "1", Method: protocol.MethodWait}
+	req := protocol.Request{ID: "1", V: protocol.Version, Method: protocol.MethodWait}
 	req.Params, _ = json.Marshal(protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 1000})
 
 	resp := srv.dispatch(context.Background(), req, 0)
@@ -1518,7 +1658,7 @@ func TestHandleWait_PanicStillReleasesTheWaiter(t *testing.T) {
 
 	// The server is still usable: a fresh wait on the same address blocks
 	// normally rather than tripping over a leftover entry.
-	req2 := protocol.Request{ID: "2", Method: protocol.MethodLs}
+	req2 := protocol.Request{ID: "2", V: protocol.Version, Method: protocol.MethodLs}
 	req2.Params, _ = json.Marshal(protocol.WhoParams{Workspace: "proj"})
 	resp2 := srv.dispatch(context.Background(), req2, 0)
 	if resp2.Error == nil || resp2.Error.Code != protocol.CodeInternal {
@@ -1574,8 +1714,8 @@ func TestGracefulShutdownUnblocksEverything(t *testing.T) {
 
 	enc := json.NewEncoder(waitConn)
 	dec := json.NewDecoder(waitConn)
-	reg, _ := json.Marshal(protocol.RegisterParams{Name: "bob", Workspace: "proj", SessionID: "s1"})
-	if err := enc.Encode(protocol.Request{ID: "1", Method: protocol.MethodRegister, Params: reg}); err != nil {
+	reg, _ := json.Marshal(protocol.RegisterParams{Name: "bob", Workspace: "proj"})
+	if err := enc.Encode(protocol.Request{ID: "1", V: protocol.Version, Method: protocol.MethodRegister, Params: reg}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	var resp protocol.Response
@@ -1584,7 +1724,7 @@ func TestGracefulShutdownUnblocksEverything(t *testing.T) {
 	}
 
 	waitParams, _ := json.Marshal(protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 300000})
-	if err := enc.Encode(protocol.Request{ID: "2", Method: protocol.MethodWait, Params: waitParams}); err != nil {
+	if err := enc.Encode(protocol.Request{ID: "2", V: protocol.Version, Method: protocol.MethodWait, Params: waitParams}); err != nil {
 		t.Fatalf("wait: %v", err)
 	}
 	time.Sleep(150 * time.Millisecond) // let it park

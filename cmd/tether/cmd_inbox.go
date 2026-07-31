@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 const inboxLong = `Show the messages waiting for this agent.

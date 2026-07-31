@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/praneethravuri/tether/pkg/protocol"
+	"github.com/praneethravuri/tether/internal/protocol"
 )
 
 // defaultWaitTimeout is long enough to be useful in a shell loop and short
@@ -107,12 +107,22 @@ func runWait(cmd *cobra.Command, opts *waitOptions) error {
 	return nil
 }
 
+// waitRetryBaseDelay/waitRetryMaxDelay bound the backoff between
+// transport-failure retries, so a daemon that never comes back is polled a
+// few times a second rather than in a tight loop.
+const (
+	waitRetryBaseDelay = 200 * time.Millisecond
+	waitRetryMaxDelay  = 5 * time.Second
+)
+
 // waitUpTo blocks for up to total, transparently re-issuing wait past the
 // daemon's internal per-request ceiling (WaitResult.Capped) so the CLI's
 // contract is genuinely "blocks up to --timeout".
 func waitUpTo(name, workspace, session string, total time.Duration) (protocol.WaitResult, error) {
 	deadline := time.Now().Add(total)
 	remaining := total
+	autoStart := true // a daemon that crashes on every start must not be re-spawned every retry
+	transportFailures := 0
 
 	for {
 		params := protocol.WaitParams{
@@ -123,16 +133,28 @@ func waitUpTo(name, workspace, session string, total time.Duration) (protocol.Wa
 		}
 
 		var res protocol.WaitResult
-		err := callTimeout(protocol.MethodWait, params, &res, waitCallTimeout(remaining))
+		err := doCall(protocol.MethodWait, params, &res, waitCallTimeout(remaining), autoStart)
 		if err != nil {
 			// A transport failure (the daemon was killed while this call was
-			// parked, say) is worth reconnecting for -- callTimeout auto-starts
-			// on the next dial if needed. A daemon-side error (bad request,
-			// conflict) means something is genuinely wrong, so that still
-			// returns immediately.
+			// parked, say) is worth reconnecting for. A daemon-side error (bad
+			// request, conflict) means something is genuinely wrong, so that
+			// still returns immediately.
 			if _, fromDaemon := daemonCode(err); fromDaemon {
 				return protocol.WaitResult{}, err
 			}
+			autoStart = false
+			transportFailures++
+
+			remaining = time.Until(deadline)
+			if remaining <= 0 {
+				return protocol.WaitResult{}, err
+			}
+			delay := backoff(transportFailures)
+			if delay > remaining {
+				delay = remaining
+			}
+			time.Sleep(delay)
+
 			remaining = time.Until(deadline)
 			if remaining <= 0 {
 				return protocol.WaitResult{}, err
@@ -152,4 +174,14 @@ func waitUpTo(name, workspace, session string, total time.Duration) (protocol.Wa
 			return protocol.WaitResult{Pending: 0, TimedOut: true}, nil // Capped is an internal detail by now
 		}
 	}
+}
+
+// backoff doubles from waitRetryBaseDelay per consecutive failure, capped at
+// waitRetryMaxDelay.
+func backoff(failures int) time.Duration {
+	d := waitRetryBaseDelay << uint(failures-1)
+	if d > waitRetryMaxDelay || d <= 0 { // <= 0 catches the shift overflowing on a very long run
+		return waitRetryMaxDelay
+	}
+	return d
 }
