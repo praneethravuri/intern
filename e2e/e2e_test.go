@@ -404,7 +404,7 @@ func TestEndToEnd(t *testing.T) {
 		r := runTether(t, sock, "", "ls", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "ls")
 
-		var res protocol.WhoResult
+		var res protocol.LsResult
 		unmarshalJSON(t, r.stdout, &res)
 
 		names := map[string]bool{}

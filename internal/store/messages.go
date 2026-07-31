@@ -11,11 +11,15 @@ import (
 	"github.com/praneethravuri/tether/internal/id"
 )
 
-// defaultInboxLimit is used when a caller passes a non-positive limit.
-const defaultInboxLimit = 50
+// DefaultInboxLimit is used when a caller passes a non-positive limit.
+// Exported so the daemon's own request-side default stays the same value by
+// reference, not by a second, easy-to-forget copy of the number 50.
+const DefaultInboxLimit = 50
 
 // maxInboxDepth bounds one agent's pending mail; past it the oldest message
-// is retired first and agents.dropped is incremented.
+// is retired first and agents.dropped is incremented. Unrelated to the
+// daemon's maxInboxRequestLimit, despite the similar name and value: this
+// one silently drops the oldest message, that one rejects the request.
 const maxInboxDepth = 500
 
 // scanMessage reads one messages row in msgCols order.
@@ -180,7 +184,7 @@ func stampDelivered(ctx context.Context, ex execer, nowMS int64, ids []string) e
 // writer, and as one batched statement rather than one per message.
 func (s *Store) Inbox(ctx context.Context, ws, name string, limit int) ([]Message, error) {
 	if limit <= 0 {
-		limit = defaultInboxLimit
+		limit = DefaultInboxLimit
 	}
 
 	out, err := fetchPending(ctx, s.r, ws, name, limit)
@@ -212,7 +216,7 @@ func (s *Store) Inbox(ctx context.Context, ws, name string, limit int) ([]Messag
 // acked -- not since it was sent, which is a different message entirely.
 func (s *Store) Replay(ctx context.Context, ws, name string, limit int, window time.Duration) ([]Message, error) {
 	if limit <= 0 {
-		limit = defaultInboxLimit
+		limit = DefaultInboxLimit
 	}
 	var ackedSince int64
 	if window > 0 {
@@ -244,7 +248,7 @@ func (s *Store) Replay(ctx context.Context, ws, name string, limit int, window t
 	return out, nil
 }
 
-// execer lets ackIDs run against either the write pool (Ack) or an existing
+// execer lets ackIDs run against either the write pool or an existing
 // transaction (Drain).
 type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
@@ -278,21 +282,12 @@ func ackIDs(ctx context.Context, ex execer, now int64, ws, name string, ids []st
 	return int(n), nil
 }
 
-// Ack retires messages for the given recipient and reports how many rows changed.
-func (s *Store) Ack(ctx context.Context, ws, name string, ids []string) (int, error) {
-	n, err := ackIDs(ctx, s.w, s.nowMS(), ws, name, ids)
-	if err != nil {
-		return 0, fmt.Errorf("store: ack: %w", err)
-	}
-	return n, nil
-}
-
 // Drain returns the recipient's pending mail, oldest first, acking it in the
 // same transaction so a message is handed over exactly once. dropped reports
 // and resets agents.dropped since the last drain.
 func (s *Store) Drain(ctx context.Context, ws, name string, limit int) (msgs []Message, dropped int, err error) {
 	if limit <= 0 {
-		limit = defaultInboxLimit
+		limit = DefaultInboxLimit
 	}
 
 	tx, err := s.w.BeginTx(ctx, nil)

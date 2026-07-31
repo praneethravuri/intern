@@ -190,12 +190,11 @@ func TestSweepOnce_PurgesRetiredMessages(t *testing.T) {
 	if err := ts.store.Register(ctx, store.Agent{Workspace: "ws", Name: "bob", Cwd: "/b"}, time.Time{}); err != nil {
 		t.Fatalf("register bob: %v", err)
 	}
-	id, err := ts.store.Send(ctx, store.Message{FromName: "alice", FromWS: "ws", ToName: "bob", ToWS: "ws", Kind: store.KindNote, Body: "hi"})
-	if err != nil {
+	if _, err := ts.store.Send(ctx, store.Message{FromName: "alice", FromWS: "ws", ToName: "bob", ToWS: "ws", Kind: store.KindNote, Body: "hi"}); err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	if _, err := ts.store.Ack(ctx, "ws", "bob", []string{id}); err != nil {
-		t.Fatalf("ack: %v", err)
+	if _, _, err := ts.store.Drain(ctx, "ws", "bob", 10); err != nil {
+		t.Fatalf("drain: %v", err)
 	}
 
 	clk.advance(2 * time.Hour)

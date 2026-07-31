@@ -44,11 +44,11 @@ func TestParamsAndResults_RoundTrip(t *testing.T) {
 		{"MessageView", MessageView{ID: "m1", ThreadID: "t1", From: "a@w", To: "b@w", Kind: "note", Body: "hi", CreatedAt: "2026-07-28T09:00:00Z"}, func() any { return new(MessageView) }},
 		{"WaitParams", WaitParams{Name: "alice", Workspace: "tether", Session: "sess-1", TimeoutMS: 30000}, func() any { return new(WaitParams) }},
 		{"WaitResult", WaitResult{Pending: 0, TimedOut: true}, func() any { return new(WaitResult) }},
-		{"WhoParams", WhoParams{Workspace: "tether"}, func() any { return new(WhoParams) }},
+		{"LsParams", LsParams{Workspace: "tether"}, func() any { return new(LsParams) }},
 		{"AgentView", agent, func() any { return new(AgentView) }},
-		{"WhoResult", WhoResult{Agents: []AgentView{agent}}, func() any { return new(WhoResult) }},
-		{"StatusParams", StatusParams{Name: "alice", Workspace: "tether"}, func() any { return new(StatusParams) }},
-		{"StatusResult", StatusResult{Agent: agent}, func() any { return new(StatusResult) }},
+		{"LsResult", LsResult{Agents: []AgentView{agent}}, func() any { return new(LsResult) }},
+		{"ExplainParams", ExplainParams{Name: "alice", Workspace: "tether"}, func() any { return new(ExplainParams) }},
+		{"ExplainResult", ExplainResult{Agent: agent}, func() any { return new(ExplainResult) }},
 	}
 
 	for _, tc := range cases {
@@ -79,8 +79,8 @@ func TestJSONTags_AreSnakeCase(t *testing.T) {
 		SendParams{}, SendResult{},
 		InboxParams{}, InboxResult{}, MessageView{},
 		WaitParams{}, WaitResult{},
-		WhoParams{}, WhoResult{}, AgentView{},
-		StatusParams{}, StatusResult{},
+		LsParams{}, LsResult{}, AgentView{},
+		ExplainParams{}, ExplainResult{},
 		Request{}, Response{}, Error{},
 	}
 
@@ -184,13 +184,13 @@ func TestParams_MissingParamsDecodesToZeroValue(t *testing.T) {
 	}
 
 	// The daemon treats an absent params block as the zero value.
-	var p WhoParams
+	var p LsParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if p != (WhoParams{}) {
+	if p != (LsParams{}) {
 		t.Errorf("got %+v, want zero value", p)
 	}
 }

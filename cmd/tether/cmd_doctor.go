@@ -120,8 +120,8 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 		report.DaemonLogPath = logPath
 	}
 
-	var who protocol.WhoResult
-	err := doCall(protocol.MethodLs, protocol.WhoParams{Workspace: report.Workspace}, &who,
+	var who protocol.LsResult
+	err := doCall(protocol.MethodLs, protocol.LsParams{Workspace: report.Workspace}, &who,
 		defaultCallTimeout, false)
 	switch err {
 	case nil:
