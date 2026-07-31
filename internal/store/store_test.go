@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -591,5 +592,38 @@ func TestDeleteAgents(t *testing.T) {
 	}
 	if n, err := s.DeleteAgents(ctx, nil); err != nil || n != 0 {
 		t.Fatalf("DeleteAgents(nil) = (%d, %v), want (0, nil)", n, err)
+	}
+}
+
+// TestDeleteAgents_ChunksPastTheBoundParamLimit proves a batch larger than
+// one chunk still deletes everything, not just the first chunk's worth --
+// unlike ackIDs' ids (bounded by the 500-message inbox cap upstream), a dead
+// agent sweep's key count has no such ceiling.
+func TestDeleteAgents_ChunksPastTheBoundParamLimit(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	const total = deleteAgentsChunk + 50
+	keys := make([]AgentKey, 0, total)
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("agent-%d", i)
+		mustRegister(t, s, Agent{Workspace: "ws", Name: name, Cwd: "/a"})
+		keys = append(keys, AgentKey{Workspace: "ws", Name: name})
+	}
+
+	n, err := s.DeleteAgents(ctx, keys)
+	if err != nil {
+		t.Fatalf("DeleteAgents: %v", err)
+	}
+	if n != total {
+		t.Fatalf("DeleteAgents removed %d rows, want %d", n, total)
+	}
+
+	remaining, err := s.ListAgents(ctx, "ws", 0)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("%d agents remain after deleting a multi-chunk batch, want 0", len(remaining))
 	}
 }

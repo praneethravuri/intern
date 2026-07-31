@@ -5,10 +5,14 @@ package store
 
 // qSetSchemaVersion records the current schema revision. Unlike an
 // INSERT ... ON CONFLICT DO NOTHING, this must actually overwrite the value
-// on a second migration, since a database can move from v1 to v3 in place.
+// on a second migration, since a database can move several versions at once.
 const qSetSchemaVersion = `
-INSERT INTO meta (key, value) VALUES ('schema_version', '3')
+INSERT INTO meta (key, value) VALUES ('schema_version', ?)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+
+// qGetSchemaVersion reads it back -- checked before migrating, so a binary
+// older than the database it's opening refuses rather than guesses.
+const qGetSchemaVersion = `SELECT value FROM meta WHERE key = 'schema_version'`
 
 const (
 	// qRegister is a guarded upsert; RowsAffected()==0 means the name is taken.
@@ -118,8 +122,10 @@ WHERE to_ws = ? AND to_name = ? AND acked_at IS NULL AND dead = 0
 ORDER BY id
 LIMIT ?`
 
+	// qStampDeliveredPrefix batch-stamps every id in one round trip instead
+	// of one UPDATE per message; the caller appends "(?,?,...)" for the ids.
 	// Fires only on first delivery; redelivery doesn't overwrite the timestamp.
-	qStampDelivered = `UPDATE messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL`
+	qStampDeliveredPrefix = `UPDATE messages SET delivered_at = ? WHERE delivered_at IS NULL AND id IN `
 
 	// qReplay returns acked history, newest first; callers reverse it. The
 	// window is measured from when each message was acked, not sent.

@@ -219,7 +219,14 @@ func TestStoreDefaultsOnZeroValue(t *testing.T) {
 
 func TestHasColumnOnMissingTable(t *testing.T) {
 	s := newStore(t)
-	has, err := s.hasColumn(context.Background(), "no_such_table", "no_such_col")
+	ctx := context.Background()
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	has, err := hasColumn(ctx, tx, "no_such_table", "no_such_col")
 	if err != nil {
 		t.Fatalf("hasColumn on a missing table: %v", err)
 	}
