@@ -43,8 +43,8 @@ func acquireLock(path string) (release func(), err error) {
 		}
 		if proc.AliveAt(pid, start) {
 			return nil, fmt.Errorf(
-				"tether: another daemon (pid %d) is already starting up or running against %s",
-				pid, path)
+				"tether: another daemon (pid %d) is already starting up or running against %s: %w",
+				pid, path, ErrAlreadyRunning)
 		}
 		_ = os.Remove(path) // stale: creator is gone, or a different process now holds that pid
 	}

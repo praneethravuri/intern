@@ -184,7 +184,7 @@ func TestSweepOnce_PurgesRetiredMessages(t *testing.T) {
 	if !strings.Contains(got, "purged 1 message") {
 		t.Errorf("sweepOnce did not report purging the retired message: %q", got)
 	}
-	replay, err := ts.store.Replay(ctx, "ws", "bob", 10)
+	replay, err := ts.store.Replay(ctx, "ws", "bob", 10, 0)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}

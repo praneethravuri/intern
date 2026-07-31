@@ -138,6 +138,8 @@ func TestExplainOfAnotherAgentDoesNotRegister(t *testing.T) {
 	d.only(t, protocol.MethodExplain)
 }
 
+// explain and send must agree on the exit code for the same 404 -- both mean
+// "nobody was there", so both exit exitTimeout, not exitGeneral.
 func TestExplainOfAnUnknownAgent(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	newFakeDaemon(t, errHandler(protocol.CodeNotFound, "no agent named ghost in storefront"))
@@ -147,8 +149,8 @@ func TestExplainOfAnUnknownAgent(t *testing.T) {
 		t.Fatal("explain succeeded for an unknown agent")
 	}
 	requireContains(t, r.err.Error(), "no agent named ghost", "error")
-	if got := r.exitCode(); got != exitGeneral {
-		t.Fatalf("exit code = %d, want %d", got, exitGeneral)
+	if got := r.exitCode(); got != exitTimeout {
+		t.Fatalf("exit code = %d, want %d", got, exitTimeout)
 	}
 }
 

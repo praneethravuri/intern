@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -62,6 +63,32 @@ func TestStartupErrorMessageIsPlain(t *testing.T) {
 	err := &startupError{"socket /tmp/sock is already served by a running daemon"}
 	if err.Error() != "socket /tmp/sock is already served by a running daemon" {
 		t.Fatalf("Error() = %q", err.Error())
+	}
+	if !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatal("startupError does not unwrap to ErrAlreadyRunning")
+	}
+}
+
+// TestRun_DoubleStartReturnsErrAlreadyRunning is drift item 9: Run must
+// fail with an error identifiable as ErrAlreadyRunning when another daemon
+// already holds the lock (this process's own pid, which is of course
+// alive), so the CLI can map it to exitConflict instead of a bare general
+// failure.
+func TestRun_DoubleStartReturnsErrAlreadyRunning(t *testing.T) {
+	dir := shortTempDir(t)
+	sockPath := filepath.Join(dir, "sock")
+
+	release, err := acquireLock(sockPath + ".lock")
+	if err != nil {
+		t.Fatalf("seed lock: %v", err)
+	}
+	defer release()
+
+	t.Setenv("TETHER_SOCK", sockPath)
+	t.Setenv("TETHER_DB", filepath.Join(dir, "tether.db"))
+
+	if err := Run(); !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("Run() against an already-held lock = %v, want ErrAlreadyRunning", err)
 	}
 }
 

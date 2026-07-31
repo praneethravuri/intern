@@ -109,7 +109,7 @@ Both agents resolved the same workspace — the basename of the git root — so 
 
 ## CLI Reference
 
-Every command accepts `--json`, `--as <name>`, and `--workspace <name>`, and auto-starts the daemon if it isn't running — except `doctor`, which only diagnoses.
+`--json` is accepted by every command except `version` and bare `tether`. `--as <name>` and `--workspace <name>` are accepted by `register`, `send`, `inbox`, `wait`, and `explain`; `ls` and `doctor` accept `--workspace` but not `--as`; `version` and bare `tether` accept neither. Every identity-bearing command auto-starts the daemon if it isn't running, and also registers implicitly if you never called `register` yourself — usually minting a name from your harness, `<harness>-<hex4>` — except `doctor`, which only diagnoses and never auto-starts.
 
 | Command | What it does |
 | --- | --- |
@@ -140,7 +140,7 @@ Every command accepts `--json`, `--as <name>`, and `--workspace <name>`, and aut
 | `ls` | `--all` | list agents in every workspace, not just this one |
 | `register` | `--doing <text>` | what you're doing right now, shown by `explain` |
 
-`--as`, `--workspace`, and `--json` apply to every command as described under [CLI Reference](#cli-reference) and are omitted from this table.
+`--as`, `--workspace`, and `--json` apply as described under [CLI Reference](#cli-reference) and are omitted from this table.
 
 Message kinds (`note`, `handoff`, `question`, `answer`) are advisory: the receiver decides what to do with each, but a shared vocabulary lets an agent triage its inbox without reading every body.
 
@@ -199,6 +199,8 @@ The CLI is stateless: it opens the socket, writes one JSON request, reads one JS
 | `TETHER_DB` | Database path. Otherwise `~/.tether/tether.db`. |
 | `TETHER_WORKSPACE` | Overrides workspace detection entirely (otherwise the basename of the git root of the current directory). |
 | `TETHER_SESSION_ID` | Overrides the session id used to authenticate "acting as `--as X`" claims. Only needed if your harness is not one `tether` recognises; most callers never set this — an unrecognised harness still gets a stable, per-shell synthetic session id automatically. |
+
+Outside a git repo entirely, workspace detection falls back to the current directory's own basename rather than failing.
 
 The socket is created mode 0600 inside a 0700 directory, so only your user can reach the bus. See [SECURITY.md](SECURITY.md) for the full threat model.
 

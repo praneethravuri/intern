@@ -107,11 +107,12 @@ LIMIT ?`
 	// Fires only on first delivery; redelivery doesn't overwrite the timestamp.
 	qStampDelivered = `UPDATE messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL`
 
-	// qReplay returns acked history, newest first; callers reverse it.
+	// qReplay returns acked history, newest first; callers reverse it. The
+	// window is measured from when each message was acked, not sent.
 	qReplay = `
 SELECT ` + msgCols + `
 FROM messages
-WHERE to_ws = ? AND to_name = ? AND acked_at IS NOT NULL
+WHERE to_ws = ? AND to_name = ? AND acked_at IS NOT NULL AND acked_at >= ?
 ORDER BY id DESC
 LIMIT ?`
 
