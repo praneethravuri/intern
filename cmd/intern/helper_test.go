@@ -156,15 +156,6 @@ func (d *fakeDaemon) requests() []recorded {
 // that count retries of one particular RPC (cmd_wait.go's re-issue loop) use
 // this instead of len(requests()) so an unrelated implicit "register" call
 // does not inflate the count they actually care about.
-func (d *fakeDaemon) countMethod(method string) int {
-	n := 0
-	for _, r := range d.requests() {
-		if r.Method == method {
-			n++
-		}
-	}
-	return n
-}
 
 // only asserts exactly one request arrived, that it used the expected method,
 // and returns it.
@@ -257,6 +248,8 @@ func (r runOut) exitCode() int { return exitCodeFor(r.err) }
 // reads from, which matters for `send --body-file -`. If setIdentity
 // configured a name and cmd has an --as flag, it is applied here -- an
 // explicit --as in args still wins, since Execute parses args afterward.
+//
+//nolint:unparam // stdin param kept for API symmetry with mustRun
 func run(t *testing.T, cmd *cobra.Command, stdin string, args ...string) runOut {
 	t.Helper()
 
@@ -277,9 +270,9 @@ func run(t *testing.T, cmd *cobra.Command, stdin string, args ...string) runOut 
 }
 
 // mustRun executes a command and fails the test if it returned an error.
-func mustRun(t *testing.T, cmd *cobra.Command, stdin string, args ...string) runOut {
+func mustRun(t *testing.T, cmd *cobra.Command, _ string, args ...string) runOut {
 	t.Helper()
-	r := run(t, cmd, stdin, args...)
+	r := run(t, cmd, "", args...)
 	if r.err != nil {
 		t.Fatalf("command failed: %v\nstdout:\n%s", r.err, r.stdout)
 	}
