@@ -75,9 +75,8 @@ func currentSession() (harness, session string) {
 	return harness, session
 }
 
-// validateName rejects names that would be unroutable, too long for the ls
-// table and name@workspace addresses, or could smuggle a terminal escape
-// into another agent's screen via ls/explain/inbox output.
+// validateName rejects names that would be unroutable, too long for a
+// name@workspace address, or could smuggle a terminal escape into an error.
 func validateName(name string) error {
 	switch {
 	case name == "":

@@ -11,8 +11,10 @@ const lsLong = `List the agents registered with the daemon, and what each one is
 Only this workspace is shown unless --all is given. NAME is the full address:
 copy it straight into ` + "`intern send`" + `.
 
-STATE is computed fresh on every call -- see ` + "`intern explain`" + ` for the
-evidence behind one agent's state.`
+STATE is computed fresh on every call and includes the evidence behind each
+agent's state.
+
+Output is JSON by default.`
 
 type lsOptions struct {
 	identityFlags
@@ -27,8 +29,7 @@ func newLsCmd() *cobra.Command {
 		Short: "List registered agents and what each is doing",
 		Long:  lsLong,
 		Example: "  intern ls\n" +
-			"  intern ls --all\n" +
-			"  intern ls --json",
+			"  intern ls --all",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLs(cmd, &opts)
@@ -60,22 +61,11 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 	return printJSON(out, res)
 }
 
-// fleetWorkspace resolves the workspace for a fleet-view command (ls, top):
-// every workspace when all is set, otherwise the usual flag/cwd resolution.
-// Shared so the two commands can never disagree on what --all means.
+// fleetWorkspace resolves ls's workspace: every workspace when all is set,
+// otherwise the usual flag/cwd resolution.
 func fleetWorkspace(workspaceFlag string, all bool) (string, error) {
 	if all {
 		return workspaceFlag, nil
 	}
 	return resolveWorkspace(workspaceFlag)
 }
-
-// fleetSummaryParts builds the aggregate line, e.g. ["3 agents", "1 quiet"];
-// only states that occur are listed.
-
-// writeAgentTable renders the agent list as an aligned table.
-
-// pendingCell renders the PENDING column, including any dropped count.
-
-// agentAddress prefers the daemon-reported address, falling back to composing
-// one; sanitised for the terminal.

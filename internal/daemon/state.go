@@ -13,7 +13,7 @@ type stateReport struct {
 	State  string        // gone | blocked | working | quiet | unknown
 	Source string        // pid | wait | heartbeat | registration
 	Age    time.Duration // age of the evidence, not of the agent itself
-	Detail string        // human-readable evidence, for `intern explain`
+	Detail string        // evidence included in the agent JSON result
 }
 
 // workingWindow is how recently an agent must have run a intern command to

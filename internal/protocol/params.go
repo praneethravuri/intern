@@ -107,8 +107,9 @@ type WaitResult struct {
 	Capped   bool `json:"capped,omitempty"`
 }
 
-// LsParams is the payload for MethodLs. When Name is set, only that
-// agent's view is returned (the --detail path); otherwise all agents.
+// LsParams is the payload for MethodLs. Workspace scopes the result; an empty
+// workspace returns agents from every workspace. Name is reserved for an
+// internal single-agent lookup.
 type LsParams struct {
 	Workspace string `json:"workspace"`
 	Name      string `json:"name,omitempty"`
@@ -133,8 +134,7 @@ type AgentView struct {
 	LastSeen     string `json:"last_seen"`
 }
 
-// LsResult is the result for MethodLs. When --detail <name> is requested,
-// Agents has exactly one entry; otherwise it has all agents in the workspace.
+// LsResult is the result for MethodLs.
 type LsResult struct {
 	Agents []AgentView `json:"agents"`
 }
@@ -150,8 +150,8 @@ type ClaimParams struct {
 	// short-lived CLI call), paired server-side with its start time so a
 	// recycled pid is never mistaken for the original holder.
 	OwnerPID int `json:"owner_pid"`
-	// Holder is a free-text label shown by intern claims, like register's
-	// --doing -- purely diagnostic, never checked by release's logic.
+	// Holder is a free-text label shown by intern claims. It is purely
+	// diagnostic and never checked by release's logic.
 	Holder string `json:"holder,omitempty"`
 }
 

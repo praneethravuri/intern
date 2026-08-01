@@ -10,7 +10,9 @@ const claimsLong = `List claims in this workspace: who holds what, and whether i
 
 STATUS is computed fresh on every call: held (owner alive, TTL not elapsed),
 expired (TTL elapsed), or gone (owner process no longer alive) -- the same
-self-healing check ` + "`intern ls`" + ` uses for agent presence.`
+self-healing check ` + "`intern ls`" + ` uses for agent presence.
+
+Output is JSON by default.`
 
 type claimsOptions struct {
 	identityFlags
@@ -25,8 +27,7 @@ func newClaimsCmd() *cobra.Command {
 		Short: "List claims and who holds them",
 		Long:  claimsLong,
 		Example: "  intern claims\n" +
-			"  intern claims --all\n" +
-			"  intern claims --json",
+			"  intern claims --all",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runClaims(cmd, &opts)

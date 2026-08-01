@@ -4,22 +4,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/praneethravuri/intern/internal/protocol"
 )
-
-// mustParseDuration parses a Go duration or fails the test.
-func mustParseDuration(t *testing.T, s string) time.Duration {
-	t.Helper()
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		t.Fatalf("ParseDuration(%q): %v", s, err)
-	}
-	return d
-}
 
 func TestVersion(t *testing.T) {
 	r := mustRun(t, newRootCmd(), "", "version")
@@ -244,44 +233,5 @@ func TestExitErrorWithoutCauseRendersExitStatus(t *testing.T) {
 	err := silentExit(exitTimeout)
 	if got := err.Error(); got != "exit status 4" {
 		t.Errorf("Error() = %q, want %q", got, "exit status 4")
-	}
-}
-
-func TestHumanSince(t *testing.T) {
-	tests := []struct {
-		in   string
-		want string
-	}{
-		{in: "0s", want: "just now"},
-		{in: "-5s", want: "just now"},
-		{in: "999ms", want: "just now"},
-		{in: "1s", want: "1s ago"},
-		{in: "40s", want: "40s ago"},
-		{in: "59s", want: "59s ago"},
-		{in: "60s", want: "1m ago"},
-		{in: "3m", want: "3m ago"},
-		{in: "59m59s", want: "59m ago"},
-		{in: "1h", want: "1h ago"},
-		{in: "23h", want: "23h ago"},
-		{in: "24h", want: "1d ago"},
-		{in: "72h", want: "3d ago"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.in, func(t *testing.T) {
-			d := mustParseDuration(t, tc.in)
-			if got := humanSince(d); got != tc.want {
-				t.Fatalf("humanSince(%s) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestRelTime(t *testing.T) {
-	if got := relTime(""); got != "unknown" {
-		t.Fatalf("relTime(\"\") = %q, want unknown", got)
-	}
-	if got := relTime("not a timestamp"); got != "not a timestamp" {
-		t.Fatalf("relTime of an unparseable value = %q, want it echoed back", got)
 	}
 }

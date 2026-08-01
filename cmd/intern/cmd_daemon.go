@@ -18,8 +18,7 @@ This is what every other command runs automatically, detached, the first
 time it needs a daemon and none is reachable. Run it directly to watch the
 daemon's own log output, or to control its lifetime yourself.`
 
-// newStartCmd runs the daemon in the foreground -- what bare `intern` did
-// before it was repurposed for an inbox glance (see runRoot).
+// newStartCmd runs the daemon in the foreground.
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",

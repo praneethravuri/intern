@@ -44,9 +44,8 @@ UPDATE agents SET
     registered_at = ?, last_seen = ?
 WHERE workspace = ? AND name = ? AND pid = ? AND pid_start = ?`
 
-	// last_note only overwrites when note is non-empty, so an implicit
-	// re-register (send/inbox/wait all touch this on every call) can't
-	// silently clear a note `register --doing` just set.
+	// An implicit re-register (send/inbox/wait all touch this on every call)
+	// updates presence without changing the recorded command kind.
 	qHeartbeat = `
 UPDATE agents SET last_seen = ?, last_kind = ?
 WHERE workspace = ? AND name = ?`

@@ -1,5 +1,5 @@
-# intern — build, test and release targets. CGO_ENABLED=0 throughout: the pure-Go
-# SQLite driver makes the binary static and cross-compilable with no C toolchain.
+# intern — build, test, and release targets. CGO_ENABLED=0 keeps the pure-Go
+# SQLite build self-contained.
 
 SHELL := /bin/sh
 
@@ -13,9 +13,6 @@ GOFLAGS  := -trimpath -ldflags "$(LDFLAGS)"
 BIN       := intern
 DIST      := dist
 COVERFILE := coverage.out
-
-# Platforms for `make cross`, as GOOS/GOARCH pairs.
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 .DEFAULT_GOAL := help
 
@@ -61,16 +58,6 @@ vet: ## Run go vet
 .PHONY: tidy
 tidy: ## Tidy go.mod / go.sum
 	$(GO) mod tidy
-
-.PHONY: cross
-cross: ## Cross-compile intern for every supported platform into dist/
-	@mkdir -p $(DIST)
-	@set -e; for p in $(PLATFORMS); do \
-		os=$${p%/*}; arch=$${p#*/}; \
-		echo "  $$os/$$arch  $(BIN)"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-			$(GO) build $(GOFLAGS) -o $(DIST)/$(BIN)-$$os-$$arch ./cmd/$(BIN); \
-	done
 
 .PHONY: clean
 clean: ## Remove build artifacts

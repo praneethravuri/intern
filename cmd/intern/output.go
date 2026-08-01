@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -72,70 +71,9 @@ func printJSON(w io.Writer, v any) error {
 	return nil
 }
 
-// relTime renders an RFC3339 timestamp as a short relative age such as
-// "40s ago". A timestamp that cannot be parsed is returned unchanged rather
-// than swallowed, so odd data is visible instead of invisible.
-func relTime(ts string) string {
-	if ts == "" {
-		return "unknown"
-	}
-	t, err := time.Parse(time.RFC3339, ts)
-	if err != nil {
-		return ts
-	}
-	return humanSince(time.Since(t))
-}
-
-// humanSince renders a duration as a one-unit relative age.
-func humanSince(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	switch {
-	case d < time.Second:
-		return "just now"
-	case d < time.Minute:
-		return fmt.Sprintf("%ds ago", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-	}
-}
-
-// relExpiry renders an RFC3339 expiry timestamp as a short relative
-// countdown, e.g. "in 15m", or "expired" once past.
-
-// plural renders "1 message" / "2 messages".
-
-// dash sanitises s and replaces an empty field with "-" so table columns never collapse.
-
 // sanitizeTerminal replaces C0 control bytes and DEL (except newline/tab)
-// with U+FFFD so a store-derived string can't smuggle terminal escapes.
-// Never applied on the --json path, which must stay byte-exact.
+// with U+FFFD so a store-derived value cannot smuggle terminal escapes into
+// an error message.
 func sanitizeTerminal(s string) string {
 	return sanitize.Replace(s, '�', true)
 }
-
-// untrustedContentNotice is printed once above a human-rendered inbox, since
-// message bodies are data from other agents, not instructions.
-
-// indent prefixes every line of s with pad, preserving the text byte for byte
-// apart from the added prefix.
-
-// aggregate prints a summary line joined with " · ", e.g. "3 agents · 1 quiet".
-// Empty parts are dropped.
-
-// next prints the "Next:" suggestion line every human-readable command ends
-// with, pointing at the most likely follow-up command.
-
-// empty prints "0 <noun>." followed by a Next: suggestion -- the shared
-// shape for every listing command's empty case.
-
-// truncate shortens s to at most maxRunes runes and reports whether it did.
-// Runes, not bytes: cutting mid-rune would corrupt multi-byte UTF-8 and
-// could even land inside a terminal escape sequence.
-
-// keyValues prints aligned "key: value" lines under a heading block.

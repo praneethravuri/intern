@@ -13,18 +13,13 @@ same call, so there is no separate step to get wrong. Use --peek to look
 without clearing anything, or --replay to see messages an earlier drain
 already delivered.
 
-Use --json when another program has to read this.`
-
-// defaultBodyDisplayMax caps a message body shown in the human-readable
-// table/list view. --json is never affected: it always carries the full
-// body, straight from res.Messages.
+Output is JSON by default.`
 
 type inboxOptions struct {
 	identityFlags
 	limit  int
 	peek   bool
 	replay bool
-	full   bool
 }
 
 func newInboxCmd() *cobra.Command {
@@ -37,7 +32,7 @@ func newInboxCmd() *cobra.Command {
 		Example: "  intern inbox\n" +
 			"  intern inbox --as frontend --limit 10\n" +
 			"  intern inbox --peek\n" +
-			"  intern inbox --replay --json",
+			"  intern inbox --replay",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runInbox(cmd, &opts)
@@ -48,8 +43,6 @@ func newInboxCmd() *cobra.Command {
 	cmd.Flags().IntVar(&opts.limit, "limit", 0, "maximum messages to return (default 50, max 500)")
 	cmd.Flags().BoolVar(&opts.peek, "peek", false, "show messages without clearing them")
 	cmd.Flags().BoolVar(&opts.replay, "replay", false, "show messages an earlier drain already delivered")
-	cmd.Flags().BoolVar(&opts.full, "full", false,
-		"show every message body in full, without the human-view truncation (--json is always full)")
 
 	return quiet(cmd)
 }
@@ -92,7 +85,3 @@ func runInbox(cmd *cobra.Command, opts *inboxOptions) error {
 	}
 	return printJSON(out, res)
 }
-
-// writeMessage renders one message: a scannable header, then the body
-// indented underneath. Every field is sanitised for the terminal; --json
-// still gets the body byte for byte via res.Messages, never through here.

@@ -34,7 +34,7 @@ jobs:
           cache: true
 
       - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
   # No CodeQL job here: GitHub's default setup is already configured for
   # this repo (code-scanning/default-setup, languages go+actions, weekly)

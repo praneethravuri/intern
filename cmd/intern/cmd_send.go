@@ -36,7 +36,9 @@ otherwise mangle it before intern ever sees it. Use --body-file - to read the
 body from stdin. What is read is sent byte for byte, with no trimming.
 
 Kinds: note (default), handoff, question, answer. Use --reply-to <message-id>
-to thread an answer onto the message it answers.`
+to thread an answer onto the message it answers.
+
+Output is JSON by default.`
 
 type sendOptions struct {
 	identityFlags

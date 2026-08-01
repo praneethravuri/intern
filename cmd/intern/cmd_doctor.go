@@ -20,9 +20,9 @@ Nothing currently pushes a notification when mail arrives, so every agent
 sees a message only if it polls with ` + "`intern inbox`" + ` or blocks on
 ` + "`intern wait`" + `.
 
-Exits 3 when no daemon is reachable.`
+Output is JSON by default. Exits 3 when no daemon is reachable.`
 
-// doctorReport is the --json shape of the doctor command.
+// doctorReport is the doctor command result.
 type doctorReport struct {
 	DaemonRunning bool                 `json:"daemon_running"`
 	Socket        string               `json:"socket"`
@@ -42,12 +42,11 @@ func newDoctorCmd() *cobra.Command {
 	var opts identityFlags
 
 	cmd := &cobra.Command{
-		Use:   "doctor",
-		Short: "Check the daemon, this workspace, and every agent here",
-		Long:  doctorLong,
-		Example: "  intern doctor\n" +
-			"  intern doctor --json",
-		Args: cobra.NoArgs,
+		Use:     "doctor",
+		Short:   "Check the daemon, this workspace, and every agent here",
+		Long:    doctorLong,
+		Example: "  intern doctor",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDoctor(cmd, &opts)
 		},
@@ -135,8 +134,3 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 
 	return report
 }
-
-// humanBytes renders a byte count as e.g. "1.2 MB" -- decimal (1000-based)
-// units, matching how disk usage is normally reported.
-
-// writeDoctorReport renders the report to stdout; warnings go to stderr.
