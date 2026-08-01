@@ -70,6 +70,8 @@ func TestReadmeFlagsTableMatchesRegisteredFlags(t *testing.T) {
 func TestUniversalFlagsMatchReadmeClaim(t *testing.T) {
 	identityBearing := []string{"register", "send", "inbox", "wait", "explain"}
 	workspaceOnly := []string{"ls", "doctor"}
+	// top refreshes continuously, so a one-shot --json snapshot doesn't fit.
+	workspaceOnlyNoJSON := []string{"top"}
 
 	wantAs := map[string]bool{}
 	wantWorkspace := map[string]bool{}
@@ -82,6 +84,9 @@ func TestUniversalFlagsMatchReadmeClaim(t *testing.T) {
 	for _, name := range workspaceOnly {
 		wantWorkspace[name] = true
 		wantJSON[name] = true
+	}
+	for _, name := range workspaceOnlyNoJSON {
+		wantWorkspace[name] = true
 	}
 
 	cmds := commandsByName(t)
