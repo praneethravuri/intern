@@ -23,6 +23,11 @@ const (
 	defaultMaxRequestBytes = 1 << 20 // 1 MiB
 	defaultWaitTimeout     = 60 * time.Second
 
+	// defaultClaimTTL is how long a claim lives without renewal. Short
+	// enough that an abandoned claim isn't a permanent lock, long enough to
+	// hold across a normal working session.
+	defaultClaimTTL = 15 * time.Minute
+
 	// maxWaitPerRequest bounds one held-open wait round trip; WaitResult.Capped
 	// tells the CLI to transparently re-issue wait past this internal ceiling.
 	maxWaitPerRequest = 5 * time.Minute
@@ -73,6 +78,9 @@ type Config struct {
 	// one; MaxWait caps what a caller may ask for.
 	DefaultWait time.Duration
 	MaxWait     time.Duration
+	// ClaimTTL is how long a claim lives without an explicit renewal (a
+	// caller re-claiming the same key while still its live owner).
+	ClaimTTL time.Duration
 	// MaxConns bounds concurrent connections; acceptLoop blocks past this
 	// rather than spawning an unbounded goroutine per accept.
 	MaxConns int
@@ -99,6 +107,7 @@ func DefaultConfig() Config {
 		MaxRequestBytes: defaultMaxRequestBytes,
 		DefaultWait:     defaultWaitTimeout,
 		MaxWait:         maxWaitPerRequest,
+		ClaimTTL:        defaultClaimTTL,
 		MaxConns:        defaultMaxConns,
 		IdleTimeout:     defaultIdleTimeout,
 	}
@@ -136,6 +145,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.DefaultWait > c.MaxWait {
 		c.DefaultWait = c.MaxWait
+	}
+	if c.ClaimTTL <= 0 {
+		c.ClaimTTL = d.ClaimTTL
 	}
 	if c.MaxConns <= 0 {
 		c.MaxConns = d.MaxConns

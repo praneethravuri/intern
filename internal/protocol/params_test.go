@@ -49,6 +49,13 @@ func TestParamsAndResults_RoundTrip(t *testing.T) {
 		{"LsResult", LsResult{Agents: []AgentView{agent}}, func() any { return new(LsResult) }},
 		{"ExplainParams", ExplainParams{Name: "alice", Workspace: "tether"}, func() any { return new(ExplainParams) }},
 		{"ExplainResult", ExplainResult{Agent: agent}, func() any { return new(ExplainResult) }},
+		{"ClaimParams", ClaimParams{Workspace: "tether", Key: "src/main.go", OwnerPID: 42, Holder: "alice"}, func() any { return new(ClaimParams) }},
+		{"ClaimResult", ClaimResult{LeaseID: "abc123", Holder: "alice", ExpiresAt: "2026-07-28T10:00:00Z", Renewed: true}, func() any { return new(ClaimResult) }},
+		{"ReleaseParams", ReleaseParams{Workspace: "tether", Key: "src/main.go", LeaseID: "abc123"}, func() any { return new(ReleaseParams) }},
+		{"ReleaseResult", ReleaseResult{}, func() any { return new(ReleaseResult) }},
+		{"ClaimsParams", ClaimsParams{Workspace: "tether"}, func() any { return new(ClaimsParams) }},
+		{"ClaimView", ClaimView{Workspace: "tether", Key: "src/main.go", OwnerPID: 42, Holder: "alice", Status: "held", LeasedAt: "2026-07-28T09:00:00Z", ExpiresAt: "2026-07-28T10:00:00Z"}, func() any { return new(ClaimView) }},
+		{"ClaimsResult", ClaimsResult{Claims: []ClaimView{{Workspace: "tether", Key: "src/main.go", Status: "held"}}}, func() any { return new(ClaimsResult) }},
 	}
 
 	for _, tc := range cases {
@@ -81,6 +88,8 @@ func TestJSONTags_AreSnakeCase(t *testing.T) {
 		WaitParams{}, WaitResult{},
 		LsParams{}, LsResult{}, AgentView{},
 		ExplainParams{}, ExplainResult{},
+		ClaimParams{}, ClaimResult{}, ReleaseParams{}, ReleaseResult{},
+		ClaimsParams{}, ClaimView{}, ClaimsResult{},
 		Request{}, Response{}, Error{},
 	}
 
@@ -216,9 +225,12 @@ func TestMethodConstants(t *testing.T) {
 		MethodWait:     "wait",
 		MethodLs:       "ls",
 		MethodExplain:  "explain",
+		MethodClaim:    "claim",
+		MethodRelease:  "release",
+		MethodClaims:   "claims",
 	}
-	if len(want) != 6 {
-		t.Fatalf("method constants collide: got %d distinct values, want 6", len(want))
+	if len(want) != 9 {
+		t.Fatalf("method constants collide: got %d distinct values, want 9", len(want))
 	}
 	for got, expected := range want {
 		if got != expected {

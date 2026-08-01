@@ -149,3 +149,73 @@ type ExplainParams struct {
 type ExplainResult struct {
 	Agent AgentView `json:"agent"`
 }
+
+// ClaimParams is the payload for MethodClaim. Acquiring a free key, renewing
+// the caller's own still-live claim, and reclaiming one whose owner is
+// provably dead are all the same request -- the daemon decides which
+// happened and reports it on the result.
+type ClaimParams struct {
+	Workspace string `json:"workspace"`
+	Key       string `json:"key"`
+	// OwnerPID is the live process holding this claim (the session, not the
+	// short-lived CLI call), paired server-side with its start time so a
+	// recycled pid is never mistaken for the original holder.
+	OwnerPID int `json:"owner_pid"`
+	// Holder is a free-text label shown by tether claims, like register's
+	// --doing -- purely diagnostic, never checked by release's logic.
+	Holder string `json:"holder,omitempty"`
+}
+
+// ClaimResult is the result for MethodClaim. LeaseID is freshly minted on
+// every call, including a renewal of the caller's own claim; pass it to
+// MethodRelease's LeaseID to release it. Workspace/Key are not echoed back --
+// unlike RegisterResult's Name, they never differ from what was requested.
+type ClaimResult struct {
+	LeaseID   string `json:"lease_id"`
+	Holder    string `json:"holder,omitempty"`
+	ExpiresAt string `json:"expires_at"`
+	// Renewed is true when this call extended the caller's own still-live claim.
+	Renewed bool `json:"renewed,omitempty"`
+	// Reclaimed is true when this call took over a claim whose previous
+	// owner process is provably dead.
+	Reclaimed bool `json:"reclaimed,omitempty"`
+}
+
+// ReleaseParams is the payload for MethodRelease. LeaseID must match the
+// claim's current lease exactly; a stale id from an earlier acquisition of
+// the same key is rejected, not silently ignored.
+type ReleaseParams struct {
+	Workspace string `json:"workspace"`
+	Key       string `json:"key"`
+	LeaseID   string `json:"lease_id"`
+}
+
+// ReleaseResult is the result for MethodRelease: an empty object acking
+// success, matching WaitResult/InboxResult's lead of not echoing back
+// request-supplied identity that never changes.
+type ReleaseResult struct{}
+
+// ClaimsParams is the payload for MethodClaims. An empty Workspace lists
+// every workspace, matching LsParams.
+type ClaimsParams struct {
+	Workspace string `json:"workspace"`
+}
+
+// ClaimView describes one claim. Status is computed fresh on every query,
+// never persisted, mirroring AgentView's State.
+type ClaimView struct {
+	Workspace string `json:"workspace"`
+	Key       string `json:"key"`
+	OwnerPID  int    `json:"owner_pid"`
+	Holder    string `json:"holder,omitempty"`
+	// Status is one of held (owner alive, TTL not elapsed), expired (TTL
+	// elapsed), or gone (owner process no longer alive).
+	Status    string `json:"status"`
+	LeasedAt  string `json:"leased_at"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+// ClaimsResult is the result for MethodClaims.
+type ClaimsResult struct {
+	Claims []ClaimView `json:"claims"`
+}

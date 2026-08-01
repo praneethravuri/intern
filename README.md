@@ -109,7 +109,7 @@ Both agents resolved the same workspace — the basename of the git root — so 
 
 ## CLI Reference
 
-`--json` is accepted by every command except `version`, `top`, and bare `tether`. `--as <name>` and `--workspace <name>` are accepted by `register`, `send`, `inbox`, `wait`, and `explain`; `ls`, `top`, and `doctor` accept `--workspace` but not `--as`; `version`, `demo`, and bare `tether` accept neither. Every identity-bearing command auto-starts the daemon if it isn't running, and also registers implicitly if you never called `register` yourself — usually minting a name from your harness, `<harness>-<hex4>` — except `doctor`, which only diagnoses and never auto-starts.
+`--json` is accepted by every command except `version`, `top`, and bare `tether`. `--as <name>` and `--workspace <name>` are accepted by `register`, `send`, `inbox`, `wait`, and `explain`; `ls`, `top`, `doctor`, `claim`, `release`, and `claims` accept `--workspace` but not `--as` (a claim is owned by a process, not a registered agent name); `version`, `demo`, and bare `tether` accept neither. Every identity-bearing command auto-starts the daemon if it isn't running, and also registers implicitly if you never called `register` yourself — usually minting a name from your harness, `<harness>-<hex4>` — except `doctor`, which only diagnoses and never auto-starts.
 
 | Command | What it does |
 | --- | --- |
@@ -122,12 +122,17 @@ Both agents resolved the same workspace — the basename of the git root — so 
 | `tether ls` | Lists registered agents: address, harness, computed state, pending count, last seen. |
 | `tether top` | Same fleet view as `ls`, refreshing on a timer until Ctrl-C — `htop` for agents. |
 | `tether explain [name[@workspace]]` (alias `status`) | Explains one agent's computed state, the evidence behind it, and its pending mail. Defaults to you. |
+| `tether claim <key>` | Claims exclusive ownership of a key (typically a file path) in this workspace, for the calling process. Re-running it while still the live owner renews it with a fresh lease id. |
+| `tether release <key>` | Releases a claim you hold. `--if-claim-id` must be the lease id `tether claim` returned. |
+| `tether claims` | Lists claims: workspace, key, status (`held`/`expired`/`gone`), holder, and expiry. |
 | `tether doctor` | Diagnoses the daemon, resolved workspace, detected harness, database health, and every agent. Never auto-starts. |
 | `tether demo` | Spins up an isolated daemon and runs a real handoff between two scripted agents, so you can watch tether work without any setup. |
 | `tether hooks install` | Claude Code only: writes a Stop/SessionStart hook into `.claude/settings.json` (`--user` for the global one) so mail delivers without polling `wait`. Merges, never overwrites; run `tether hooks status` to check it. |
 | `tether version` | Prints the version. |
 
 `ls`/`explain` compute a state fresh on every call, never stored, in priority order: `gone` (pid no longer alive) → `blocked` (parked in a live `wait`) → `working` (ran a command in the last 60s) → `quiet` (ran one, just not recently) → `unknown` (registered, nothing observed yet). `register --doing "compiling tests, ~5min"` sets a note that `explain` shows in place of the generic evidence string, for anything that runs long enough to otherwise read as quiet.
+
+A claim answers "who owns this file right now": three independent facts, never inferred from one another — which live process holds it (self-heals like presence, via the same pid+start-time check), a durable lease id (128-bit random, freshly minted on every acquisition, required to release), and a free-text holder label (diagnostic only, shown by `tether claims`, never checked by `release`). A claim held by a process that has since died is reclaimed immediately by the next `claim`, without waiting for its TTL (15m, a daemon-side default) to elapse.
 
 ## Flags
 
@@ -145,6 +150,9 @@ Both agents resolved the same workspace — the basename of the git root — so 
 | `top` | `--all` | watch agents in every workspace, not just this one |
 | `top` | `--interval <duration>` | refresh interval (default `2s`) |
 | `register` | `--doing <text>` | what you're doing right now, shown by `explain` |
+| `claim` | `--holder <text>` | free-text label shown by `tether claims` (e.g. `"refactoring auth"`) |
+| `release` | `--if-claim-id <id>` | lease id `tether claim` returned (required) |
+| `claims` | `--all` | list claims in every workspace, not just this one |
 
 `--as`, `--workspace`, and `--json` apply as described under [CLI Reference](#cli-reference) and are omitted from this table.
 
@@ -162,7 +170,7 @@ Exit codes are part of the contract — a script or an agent branches on these, 
 | `1` | general error | any failure without a more specific code |
 | `3` | no daemon | the daemon could not be reached, including after an auto-start attempt |
 | `4` | timeout / not found | `tether wait` returned with no mail, or `tether send` addressed an agent that does not exist ("nobody was there" either way) |
-| `5` | conflict | the request collided with existing state — almost always a name already held by a live agent |
+| `5` | conflict | the request collided with existing state — a name already held by a live agent, a key already claimed by a live process, or a `release --if-claim-id` that doesn't match the claim's current lease |
 
 ## Troubleshooting
 

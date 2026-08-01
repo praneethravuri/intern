@@ -47,3 +47,17 @@ func computeState(a store.Agent, blocked bool, now time.Time) stateReport {
 	return stateReport{State: "unknown", Source: "registration", Age: now.Sub(a.RegisteredAt),
 		Detail: "registered; nothing observed since"}
 }
+
+// claimStatus answers "is this claim still in force?" in strict priority:
+// gone (owner process no longer alive) beats expired (TTL elapsed) beats
+// held. Mirrors computeState's gone check via the same proc.AliveAt
+// primitive rather than a second liveness concept.
+func claimStatus(c store.Claim, now time.Time) string {
+	if !proc.AliveAt(c.OwnerPID, c.OwnerPIDStart) {
+		return "gone"
+	}
+	if !c.ExpiresAt.After(now) {
+		return "expired"
+	}
+	return "held"
+}

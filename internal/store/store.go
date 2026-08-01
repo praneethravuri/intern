@@ -137,7 +137,7 @@ func (s *Store) Close() error {
 // currentSchemaVersion is the highest schema version this binary
 // understands. Open refuses a database stamped with a newer one rather than
 // silently continuing against a shape it doesn't know.
-const currentSchemaVersion = 4
+const currentSchemaVersion = 5
 
 // migrate applies the full schema in one statement (modernc.org/sqlite
 // executes a multi-statement script directly, so no hand-rolled splitter is
@@ -172,6 +172,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.migrateV3ToV4(ctx, tx); err != nil {
+		return err
+	}
+	if err := s.migrateV4ToV5(ctx, tx); err != nil {
 		return err
 	}
 
@@ -318,6 +321,29 @@ WHERE session_id <> '' AND rowid NOT IN (
 		"CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at)",
 	); err != nil {
 		return fmt.Errorf("store: create idx_messages_created_at: %w", err)
+	}
+	return nil
+}
+
+// migrateV4ToV5 adds the claims table (see schema.sql), coordinating
+// exclusive access to a caller-supplied key within a workspace. schemaSQL
+// already creates it for a fresh database in the same transaction; this is
+// the explicit upgrade path for a database opened at v4, and a no-op on one
+// already at v5.
+func (s *Store) migrateV4ToV5(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS claims (
+    workspace       TEXT    NOT NULL,
+    key             TEXT    NOT NULL,
+    owner_pid       INTEGER NOT NULL DEFAULT 0,
+    owner_pid_start INTEGER NOT NULL DEFAULT 0,
+    lease_id        TEXT    NOT NULL,
+    lease_holder    TEXT    NOT NULL DEFAULT '',
+    leased_at       INTEGER NOT NULL,
+    expires_at      INTEGER NOT NULL,
+    PRIMARY KEY (workspace, key)
+) STRICT`); err != nil {
+		return fmt.Errorf("store: create claims: %w", err)
 	}
 	return nil
 }

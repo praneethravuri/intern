@@ -177,3 +177,48 @@ FROM messages
 WHERE to_ws = ? AND acked_at IS NULL AND dead = 0
 GROUP BY to_name`
 )
+
+const (
+	claimCols = `workspace, key, owner_pid, owner_pid_start, lease_id, lease_holder, leased_at, expires_at`
+
+	// qClaim is a guarded upsert: it succeeds when the key is free, its TTL
+	// has elapsed, or the caller is the same live owner renewing --
+	// mirroring qRegister's shape. RowsAffected()==0 means a different, live
+	// owner holds it.
+	qClaim = `
+INSERT INTO claims (workspace, key, owner_pid, owner_pid_start, lease_id, lease_holder, leased_at, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(workspace, key) DO UPDATE SET
+    owner_pid       = excluded.owner_pid,
+    owner_pid_start = excluded.owner_pid_start,
+    lease_id        = excluded.lease_id,
+    lease_holder    = excluded.lease_holder,
+    leased_at       = excluded.leased_at,
+    expires_at      = excluded.expires_at
+WHERE claims.expires_at < ?
+   OR (claims.owner_pid = excluded.owner_pid AND claims.owner_pid_start = excluded.owner_pid_start)`
+
+	// qReclaimClaim is a compare-and-swap: it only touches the row if it
+	// still has exactly the owner_pid/owner_pid_start the caller last
+	// observed dead -- the same shape qReclaimAgent uses.
+	qReclaimClaim = `
+UPDATE claims SET
+    owner_pid = ?, owner_pid_start = ?, lease_id = ?, lease_holder = ?, leased_at = ?, expires_at = ?
+WHERE workspace = ? AND key = ? AND owner_pid = ? AND owner_pid_start = ?`
+
+	qGetClaim = `SELECT ` + claimCols + ` FROM claims WHERE workspace = ? AND key = ?`
+
+	// qReleaseClaim is a compare-and-swap on the lease id: --if-claim-id must
+	// match the row's current lease exactly, closing the ABA race a stale id
+	// from an earlier acquisition could otherwise win.
+	qReleaseClaim = `DELETE FROM claims WHERE workspace = ? AND key = ? AND lease_id = ?`
+
+	// Empty workspace means every workspace, matching qListAgents.
+	qListClaims = `
+SELECT ` + claimCols + `
+FROM claims
+WHERE (? = '' OR workspace = ?)
+ORDER BY workspace, key`
+
+	qSweepExpiredClaims = `DELETE FROM claims WHERE expires_at < ?`
+)
