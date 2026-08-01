@@ -178,8 +178,10 @@ func newRootCmd() *cobra.Command {
 		newInboxCmd(),
 		newWaitCmd(),
 		newLsCmd(),
+		newTopCmd(),
 		newExplainCmd(),
 		newDoctorCmd(),
+		newDemoCmd(),
 		newHooksCmd(),
 	)
 
