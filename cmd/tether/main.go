@@ -180,6 +180,7 @@ func newRootCmd() *cobra.Command {
 		newLsCmd(),
 		newExplainCmd(),
 		newDoctorCmd(),
+		newHooksCmd(),
 	)
 
 	return root

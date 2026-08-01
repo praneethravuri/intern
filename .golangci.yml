@@ -56,3 +56,9 @@ linters:
         linters:
           - gosec
         text: "G204"
+      # settings_test.go only reads/writes paths built from t.TempDir(), and
+      # writes fixture settings.json content, never untrusted input.
+      - path: internal/hooks/claudecode/settings_test\.go
+        linters:
+          - gosec
+        text: "G304|G301|G306"
