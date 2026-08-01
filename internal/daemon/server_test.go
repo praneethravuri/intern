@@ -295,12 +295,6 @@ func TestRegister(t *testing.T) {
 	}
 }
 
-// TestRegister_DoingSetsLastNoteAndSurvivesAnEmptyReregister proves --doing
-// shows up in explain's detail, and that a later register (or any other
-// command's implicit re-register) with an empty Doing does not clear it --
-// the gotcha being guarded against is every other command re-registering
-// on every call.
-
 func TestRegister_DuplicateNameFromAnotherSessionConflicts(t *testing.T) {
 	ts := newTestServer(t, nil)
 
@@ -1108,7 +1102,7 @@ func TestAckMethodIsGone(t *testing.T) {
 
 // TestLs_ShowsAgentPastStaleAfter is drift item 5.2: ls must not hide an
 // agent once it goes stale -- gone is only reachable if the row is still
-// listed at all, and explain already shows it unfiltered.
+// listed at all.
 func TestLs_ShowsAgentPastStaleAfter(t *testing.T) {
 	const staleAfter = 50 * time.Millisecond
 	clk := newFakeClock()

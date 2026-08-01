@@ -543,7 +543,7 @@ func (s *Server) handleLs(ctx context.Context, req protocol.Request) protocol.Re
 
 	ws := strings.TrimSpace(p.Workspace)
 
-	// Single-agent detail view (the old "explain" path, merged into ls).
+	// An internal caller can request one agent by name.
 	if p.Name != "" {
 		name := strings.TrimSpace(p.Name)
 		a, err := s.store.GetAgent(ctx, ws, name)

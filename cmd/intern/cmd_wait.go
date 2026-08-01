@@ -25,7 +25,9 @@ on it:
   if intern wait --timeout 2m; then intern inbox; fi
 
 This is the polling-free way to idle: agents whose harness the daemon cannot
-wake should sit in wait rather than calling inbox in a loop.`
+wake should sit in wait rather than calling inbox in a loop.
+
+Output is JSON by default.`
 
 type waitOptions struct {
 	identityFlags
@@ -41,7 +43,7 @@ func newWaitCmd() *cobra.Command {
 		Long:  waitLong,
 		Example: "  intern wait\n" +
 			"  intern wait --timeout 5m\n" +
-			"  intern wait --as frontend --timeout 30s --json",
+			"  intern wait --as frontend --timeout 30s",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runWait(cmd, &opts)

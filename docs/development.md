@@ -1,40 +1,85 @@
 # Development
 
-```sh
-make build        # the binary, version stamped from git describe
-make test         # go test -race -count=1 ./...
-make test-short   # skip the slow tests
-make cover        # coverage profile plus a total
-make lint         # golangci-lint, using .golangci.yml
-make fmt          # gofmt -w
-make cross        # CGO_ENABLED=0 builds for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64
-make help         # list every target
-```
+Intern is a Go CLI plus an auto-started local daemon. The daemon exposes a
+Unix socket and persists workspace-scoped messages and claims in SQLite.
+Changes to command behavior must keep the Cobra help, README, bundled agent
+skill, and tests aligned.
 
-CI runs the build, `go vet`, a gofmt check and the race-enabled test suite on
-Linux and macOS, plus golangci-lint and a cross-compilation matrix, on every
-push and pull request.
+## Prerequisites
 
-## Regenerating the CLI docs
+- The Go version declared in [`go.mod`](../go.mod)
+- `golangci-lint`
+- `ShellCheck`
+- GoReleaser v2.17.0
 
-[`docs/reference.md`](reference.md)'s CLI Reference and Flags tables are
-generated from the live cobra command tree (`cmd/intern/docsgen.go`), not
-hand-typed, so they can't silently drift the way nine earlier bugs did
-before that guarantee existed. After changing a command's flags, `Short`, or
-`Long` text, regenerate the checked-in file:
+## Local development
 
 ```sh
-go test ./cmd/intern -run TestGeneratedDocsMatchCheckedIn -update
+make build       # builds ./intern with a version derived from git
+make test        # race-enabled package tests
+make lint        # golangci-lint
+make fmt         # formats Go files in place
+make vet         # static analysis
+make tidy        # updates module metadata
 ```
 
-`go test ./...` fails on its own if you forget: `TestGeneratedDocsMatchCheckedIn`
-byte-compares the checked-in file against what the command tree produces
-right now, and `TestDocsCommandCoverage` fails if a new top-level command is
-never added to `docsCommandOrder` in the first place.
+Run the binary from another terminal while developing:
 
-This intentionally does not use `cobra`'s own `cobra/doc` package: `cobra/doc`
-shares one package between its Markdown and man-page generators, so
-importing it for Markdown alone still pulls in `go-md2man` as a transitive
-dependency of the whole `doc` package. `docsgen.go` instead reads the same
-`*cobra.Command`/`*pflag.Flag` structs directly — already-imported types,
-zero new dependencies, and nothing added to `go.mod`.
+```sh
+./intern start
+```
+
+Client commands auto-start the daemon when needed, so normally you can run
+`./intern register <name>`, `./intern send ...`, and the other commands
+directly. For an isolated local run, set `INTERN_SOCK`, `INTERN_DB`, and
+`INTERN_WORKSPACE` to test-specific values.
+
+## Required verification
+
+Before opening a pull request, run the same release checks used for v0.3.1:
+
+```sh
+go mod tidy -diff
+go build ./...
+go vet ./...
+test -z "$(gofmt -s -l .)"
+go test -race -count=1 ./...
+golangci-lint run
+shellcheck docs/install.sh
+goreleaser check
+goreleaser release --snapshot --clean
+```
+
+The snapshot must also pass the installer end-to-end check: serve its four
+archives and `checksums.txt` over trusted HTTPS, run `docs/install.sh` with
+`INTERN_BASE_URL` and a temporary `INTERN_INSTALL_DIR`, then run the installed
+binary's `version` command. The `install-e2e` GitHub Actions job is the
+canonical implementation of that check.
+
+`gofmt -s -l .` must produce no paths. The command above uses `test -z` so a
+non-empty result fails immediately without rewriting files.
+
+## Continuous integration
+
+The pull-request workflow enforces module tidiness, builds and race-enabled
+tests on Linux and macOS, a formatting check, `golangci-lint`, ShellCheck for
+the installer, and the GoReleaser snapshot installer E2E. Scheduled security
+scanning runs the pinned Go vulnerability scanner; Dependabot monitors Go
+modules and GitHub Actions.
+
+`go vet ./...` remains a required local and release verification, even though
+it is not a separate CI job.
+
+## Documentation and releases
+
+The command reference is maintained with the command code rather than
+generated. When a command, positional argument, flag, output shape, or exit
+status changes, update all of these in the same change:
+
+- [`README.md`](../README.md)
+- [`skills/intern/SKILL.md`](../skills/intern/SKILL.md)
+- Cobra help and examples under `cmd/intern/`
+- tests that exercise the changed command
+
+Follow [`docs/releasing.md`](releasing.md) for the complete manual v0.3.1
+release procedure.

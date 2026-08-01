@@ -1,6 +1,6 @@
 version: 2
 
-# CGO_ENABLED=0 and -trimpath match `make build`/`make cross` exactly (Makefile).
+# CGO_ENABLED=0 and -trimpath match `make build` exactly (Makefile).
 # main.version gets the "v" prefix back so a release binary and a `git describe`
 # local build report the same shape.
 builds:
@@ -26,29 +26,3 @@ archives:
 
 checksum:
   name_template: checksums.txt
-
-# Keyless cosign signature over checksums.txt covers every artifact by its
-# hash, so signing each archive individually would be redundant.
-signs:
-  - cmd: cosign
-    signature: "${artifact}.sigstore.json"
-    args: [sign-blob, "--bundle=${signature}", "${artifact}", --yes]
-    artifacts: checksum
-
-sboms:
-  - artifacts: archive
-
-# Homebrew tap: praneethravuri/homebrew-tap does not exist yet, and a
-# release would fail outright trying to push a formula to a missing repo.
-# Create the tap first, then uncomment.
-#
-# brews:
-#   - name: intern
-#     repository:
-#       owner: praneethravuri
-#       name: homebrew-tap
-#     homepage: "https://github.com/praneethravuri/intern"
-#     description: "Cross-harness coordination for coding agents: register a name, exchange mail, and see presence over a local unix socket."
-#     commit_author:
-#       name: goreleaserbot
-#       email: bot@goreleaser.com
