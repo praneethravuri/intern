@@ -4,9 +4,9 @@ version: 2
 # main.version gets the "v" prefix back so a release binary and a `git describe`
 # local build report the same shape.
 builds:
-  - id: tether
-    main: ./cmd/tether
-    binary: tether
+  - id: intern
+    main: ./cmd/intern
+    binary: intern
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: -s -w -X main.version=v{{ .Version }}
@@ -19,8 +19,8 @@ builds:
 # the stable /releases/latest/download/ and /releases/download/<tag>/ URLs
 # with no GitHub API call.
 archives:
-  - id: tether
-    name_template: "tether_{{ .Os }}_{{ .Arch }}"
+  - id: intern
+    name_template: "intern_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     files: [LICENSE, README.md]
 
@@ -43,11 +43,11 @@ sboms:
 # Create the tap first, then uncomment.
 #
 # brews:
-#   - name: tether
+#   - name: intern
 #     repository:
 #       owner: praneethravuri
 #       name: homebrew-tap
-#     homepage: "https://github.com/praneethravuri/tether"
+#     homepage: "https://github.com/praneethravuri/intern"
 #     description: "Cross-harness coordination for coding agents: register a name, exchange mail, and see presence over a local unix socket."
 #     commit_author:
 #       name: goreleaserbot

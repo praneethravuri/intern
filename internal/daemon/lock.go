@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/praneethravuri/tether/internal/proc"
+	"github.com/praneethravuri/intern/internal/proc"
 )
 
 // acquireLock creates an exclusive marker file at path holding this
-// process's pid and start time, so two tetherd processes can't both start
+// process's pid and start time, so two intern daemon processes can't both start
 // against the same socket, and a pid recycled onto a crashed daemon's number
 // is never mistaken for it still running. A stale lock is reclaimed and
 // retried once. Returns a release func to remove the lock file.
@@ -28,33 +28,33 @@ func acquireLock(path string) (release func(), err error) {
 			cerr := f.Close()
 			if werr != nil || cerr != nil {
 				_ = os.Remove(path)
-				return nil, fmt.Errorf("tether: write lock file %s: %w", path, errors.Join(werr, cerr))
+				return nil, fmt.Errorf("intern: write lock file %s: %w", path, errors.Join(werr, cerr))
 			}
 			return func() { _ = os.Remove(path) }, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {
-			return nil, fmt.Errorf("tether: create lock file %s: %w", path, err)
+			return nil, fmt.Errorf("intern: create lock file %s: %w", path, err)
 		}
 
 		pid, start, rerr := readLockIdentity(path)
 		if rerr != nil {
 			// Uncertain state (e.g. a concurrent writer mid-write) is treated as held.
-			return nil, fmt.Errorf("tether: lock file %s exists and could not be read: %w", path, rerr)
+			return nil, fmt.Errorf("intern: lock file %s exists and could not be read: %w", path, rerr)
 		}
 		if proc.AliveAt(pid, start) {
 			return nil, fmt.Errorf(
-				"tether: another daemon (pid %d) is already starting up or running against %s: %w",
+				"intern: another daemon (pid %d) is already starting up or running against %s: %w",
 				pid, path, ErrAlreadyRunning)
 		}
 		_ = os.Remove(path) // stale: creator is gone, or a different process now holds that pid
 	}
 
-	return nil, fmt.Errorf("tether: could not acquire lock file %s", path)
+	return nil, fmt.Errorf("intern: could not acquire lock file %s", path)
 }
 
 // readLockIdentity parses the pid, and start time if present, out of a lock
 // file written by acquireLock. A legacy single-field file (pid only, written
-// by an older tether) parses with start 0, which proc.AliveAt treats as
+// by an older intern) parses with start 0, which proc.AliveAt treats as
 // "unknown" and falls back to a plain pid check.
 func readLockIdentity(path string) (pid int, start int64, err error) {
 	raw, err := os.ReadFile(path)

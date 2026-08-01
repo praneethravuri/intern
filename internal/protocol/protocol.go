@@ -1,4 +1,4 @@
-// Package protocol defines the wire format and socket transport for tether:
+// Package protocol defines the wire format and socket transport for intern:
 // newline-delimited JSON Request/Response objects over a unix socket.
 package protocol
 

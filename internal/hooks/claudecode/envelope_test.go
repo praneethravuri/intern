@@ -25,7 +25,7 @@ func TestParseEnvelopeRejectsPlainText(t *testing.T) {
 	cases := []string{
 		"",
 		"a normal message body",
-		"TETHER_OP: v1 mail: no marker prefix",
+		"INTERN_OP: v1 mail: no marker prefix",
 		"\u2063not an op line at all",
 	}
 	for _, s := range cases {

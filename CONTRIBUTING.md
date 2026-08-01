@@ -27,6 +27,6 @@ macOS), golangci-lint, and a cross-compilation matrix on every push and PR.
 
 ## Reporting a bug
 
-Open an issue with the output of `tether version`, your OS/arch, and the
+Open an issue with the output of `intern version`, your OS/arch, and the
 smallest command sequence that reproduces it. For anything you believe is a
 security issue, do not open a public issue — email the maintainer instead.

@@ -1,4 +1,4 @@
-# tether — build, test and release targets. CGO_ENABLED=0 throughout: the pure-Go
+# intern — build, test and release targets. CGO_ENABLED=0 throughout: the pure-Go
 # SQLite driver makes the binary static and cross-compilable with no C toolchain.
 
 SHELL := /bin/sh
@@ -10,7 +10,7 @@ GO       ?= go
 LDFLAGS  := -s -w -X main.version=$(VERSION)
 GOFLAGS  := -trimpath -ldflags "$(LDFLAGS)"
 
-BIN       := tether
+BIN       := intern
 DIST      := dist
 COVERFILE := coverage.out
 
@@ -21,16 +21,16 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 .PHONY: help
 help: ## Show this help
-	@echo "tether $(VERSION)"
+	@echo "intern $(VERSION)"
 	@echo
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: build
-build: ## Build ./tether with the version stamped in
+build: ## Build ./intern with the version stamped in
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -o $(BIN) ./cmd/$(BIN)
 
 .PHONY: install
-install: ## go install tether into GOBIN
+install: ## go install intern into GOBIN
 	CGO_ENABLED=0 $(GO) install $(GOFLAGS) ./cmd/$(BIN)
 
 .PHONY: test
@@ -63,7 +63,7 @@ tidy: ## Tidy go.mod / go.sum
 	$(GO) mod tidy
 
 .PHONY: cross
-cross: ## Cross-compile tether for every supported platform into dist/
+cross: ## Cross-compile intern for every supported platform into dist/
 	@mkdir -p $(DIST)
 	@set -e; for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \

@@ -14,15 +14,15 @@ func TestParamsAndResults_RoundTrip(t *testing.T) {
 	acked := "2026-07-28T10:00:05Z"
 
 	agent := AgentView{
-		Address:      "alice@tether",
+		Address:      "alice@intern",
 		Name:         "alice",
-		Workspace:    "tether",
+		Workspace:    "intern",
 		Harness:      "claude-code",
 		State:        "working",
 		StateSource:  "heartbeat",
 		StateAgeMS:   1500,
-		StateDetail:  "ran tether send",
-		Cwd:          "/home/p/tether",
+		StateDetail:  "ran intern send",
+		Cwd:          "/home/p/intern",
 		PID:          4242,
 		Pending:      3,
 		Dropped:      1,
@@ -35,27 +35,27 @@ func TestParamsAndResults_RoundTrip(t *testing.T) {
 		value any
 		into  func() any
 	}{
-		{"RegisterParams", RegisterParams{Name: "alice", Workspace: "tether", Harness: "claude-code", SessionID: "sess-1", Cwd: "/tmp", PID: 7}, func() any { return new(RegisterParams) }},
-		{"RegisterResult", RegisterResult{Address: "alice@tether", Harness: "claude-code", Created: true}, func() any { return new(RegisterResult) }},
-		{"SendParams", SendParams{FromName: "alice", FromWorkspace: "tether", FromSession: "sess-1", ToName: "bob", ToWorkspace: "tether", Kind: "ask", Body: "status?", ReplyTo: "m0"}, func() any { return new(SendParams) }},
+		{"RegisterParams", RegisterParams{Name: "alice", Workspace: "intern", Harness: "claude-code", SessionID: "sess-1", Cwd: "/tmp", PID: 7}, func() any { return new(RegisterParams) }},
+		{"RegisterResult", RegisterResult{Address: "alice@intern", Harness: "claude-code", Created: true}, func() any { return new(RegisterResult) }},
+		{"SendParams", SendParams{FromName: "alice", FromWorkspace: "intern", FromSession: "sess-1", ToName: "bob", ToWorkspace: "intern", Kind: "ask", Body: "status?", ReplyTo: "m0"}, func() any { return new(SendParams) }},
 		{"SendResult", SendResult{MessageID: "m1"}, func() any { return new(SendResult) }},
-		{"InboxParams", InboxParams{Name: "alice", Workspace: "tether", Session: "sess-1", Limit: 25, Peek: true}, func() any { return new(InboxParams) }},
-		{"InboxResult", InboxResult{Messages: []MessageView{{ID: "m1", ThreadID: "t1", ReplyTo: "m0", From: "bob@tether", To: "alice@tether", Kind: "reply", Body: "done", CreatedAt: "2026-07-28T09:59:00Z", DeliveredAt: &delivered, AckedAt: &acked}}, Cleared: 1, Pending: 2, Dropped: 3}, func() any { return new(InboxResult) }},
+		{"InboxParams", InboxParams{Name: "alice", Workspace: "intern", Session: "sess-1", Limit: 25, Peek: true}, func() any { return new(InboxParams) }},
+		{"InboxResult", InboxResult{Messages: []MessageView{{ID: "m1", ThreadID: "t1", ReplyTo: "m0", From: "bob@intern", To: "alice@intern", Kind: "reply", Body: "done", CreatedAt: "2026-07-28T09:59:00Z", DeliveredAt: &delivered, AckedAt: &acked}}, Cleared: 1, Pending: 2, Dropped: 3}, func() any { return new(InboxResult) }},
 		{"MessageView", MessageView{ID: "m1", ThreadID: "t1", From: "a@w", To: "b@w", Kind: "note", Body: "hi", CreatedAt: "2026-07-28T09:00:00Z"}, func() any { return new(MessageView) }},
-		{"WaitParams", WaitParams{Name: "alice", Workspace: "tether", Session: "sess-1", TimeoutMS: 30000}, func() any { return new(WaitParams) }},
+		{"WaitParams", WaitParams{Name: "alice", Workspace: "intern", Session: "sess-1", TimeoutMS: 30000}, func() any { return new(WaitParams) }},
 		{"WaitResult", WaitResult{Pending: 0, TimedOut: true}, func() any { return new(WaitResult) }},
-		{"LsParams", LsParams{Workspace: "tether"}, func() any { return new(LsParams) }},
+		{"LsParams", LsParams{Workspace: "intern"}, func() any { return new(LsParams) }},
 		{"AgentView", agent, func() any { return new(AgentView) }},
 		{"LsResult", LsResult{Agents: []AgentView{agent}}, func() any { return new(LsResult) }},
-		{"ExplainParams", ExplainParams{Name: "alice", Workspace: "tether"}, func() any { return new(ExplainParams) }},
+		{"ExplainParams", ExplainParams{Name: "alice", Workspace: "intern"}, func() any { return new(ExplainParams) }},
 		{"ExplainResult", ExplainResult{Agent: agent}, func() any { return new(ExplainResult) }},
-		{"ClaimParams", ClaimParams{Workspace: "tether", Key: "src/main.go", OwnerPID: 42, Holder: "alice"}, func() any { return new(ClaimParams) }},
+		{"ClaimParams", ClaimParams{Workspace: "intern", Key: "src/main.go", OwnerPID: 42, Holder: "alice"}, func() any { return new(ClaimParams) }},
 		{"ClaimResult", ClaimResult{LeaseID: "abc123", Holder: "alice", ExpiresAt: "2026-07-28T10:00:00Z", Renewed: true}, func() any { return new(ClaimResult) }},
-		{"ReleaseParams", ReleaseParams{Workspace: "tether", Key: "src/main.go", LeaseID: "abc123"}, func() any { return new(ReleaseParams) }},
+		{"ReleaseParams", ReleaseParams{Workspace: "intern", Key: "src/main.go", LeaseID: "abc123"}, func() any { return new(ReleaseParams) }},
 		{"ReleaseResult", ReleaseResult{}, func() any { return new(ReleaseResult) }},
-		{"ClaimsParams", ClaimsParams{Workspace: "tether"}, func() any { return new(ClaimsParams) }},
-		{"ClaimView", ClaimView{Workspace: "tether", Key: "src/main.go", OwnerPID: 42, Holder: "alice", Status: "held", LeasedAt: "2026-07-28T09:00:00Z", ExpiresAt: "2026-07-28T10:00:00Z"}, func() any { return new(ClaimView) }},
-		{"ClaimsResult", ClaimsResult{Claims: []ClaimView{{Workspace: "tether", Key: "src/main.go", Status: "held"}}}, func() any { return new(ClaimsResult) }},
+		{"ClaimsParams", ClaimsParams{Workspace: "intern"}, func() any { return new(ClaimsParams) }},
+		{"ClaimView", ClaimView{Workspace: "intern", Key: "src/main.go", OwnerPID: 42, Holder: "alice", Status: "held", LeasedAt: "2026-07-28T09:00:00Z", ExpiresAt: "2026-07-28T10:00:00Z"}, func() any { return new(ClaimView) }},
+		{"ClaimsResult", ClaimsResult{Claims: []ClaimView{{Workspace: "intern", Key: "src/main.go", Status: "held"}}}, func() any { return new(ClaimsResult) }},
 	}
 
 	for _, tc := range cases {
@@ -162,7 +162,7 @@ func TestMessageView_OmitsNilTimes(t *testing.T) {
 // TestParams_DecodeFromRawRequest is the exact path the daemon takes: read the
 // envelope, switch on Method, decode Params into the concrete struct.
 func TestParams_DecodeFromRawRequest(t *testing.T) {
-	line := `{"id":"r1","method":"send","params":{"from_name":"alice","from_workspace":"tether","to_name":"bob","to_workspace":"tether","kind":"ask","body":"ping","reply_to":""}}`
+	line := `{"id":"r1","method":"send","params":{"from_name":"alice","from_workspace":"intern","to_name":"bob","to_workspace":"intern","kind":"ask","body":"ping","reply_to":""}}`
 
 	var req Request
 	if err := json.Unmarshal([]byte(line), &req); err != nil {
@@ -177,7 +177,7 @@ func TestParams_DecodeFromRawRequest(t *testing.T) {
 		t.Fatalf("unmarshal params: %v", err)
 	}
 
-	want := SendParams{FromName: "alice", FromWorkspace: "tether", ToName: "bob", ToWorkspace: "tether", Kind: "ask", Body: "ping"}
+	want := SendParams{FromName: "alice", FromWorkspace: "intern", ToName: "bob", ToWorkspace: "intern", Kind: "ask", Body: "ping"}
 	if p != want {
 		t.Errorf("got %+v, want %+v", p, want)
 	}
@@ -208,7 +208,7 @@ func TestParams_UnknownFieldsAreIgnored(t *testing.T) {
 	// Forward compatibility: a newer CLI may send fields this daemon build
 	// does not know about. Decoding must not fail.
 	var p RegisterParams
-	in := `{"name":"alice","workspace":"tether","harness":"claude-code","pid":9,"future_field":true}`
+	in := `{"name":"alice","workspace":"intern","harness":"claude-code","pid":9,"future_field":true}`
 	if err := json.Unmarshal([]byte(in), &p); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

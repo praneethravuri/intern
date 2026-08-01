@@ -35,7 +35,7 @@ func readFile(t *testing.T, path string) []byte {
 func TestInstallCreatesSettingsFileWhenAbsent(t *testing.T) {
 	path := settingsPath(t)
 
-	res, err := Install(path, "/usr/local/bin/tether")
+	res, err := Install(path, "/usr/local/bin/intern")
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestInstallCreatesSettingsFileWhenAbsent(t *testing.T) {
 		t.Fatal("Changed = false, want true on first install")
 	}
 
-	st, err := Inspect(path, "/usr/local/bin/tether")
+	st, err := Inspect(path, "/usr/local/bin/intern")
 	if err != nil {
 		t.Fatalf("Inspect: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestInstallCreatesSettingsFileWhenAbsent(t *testing.T) {
 
 func TestInstallWritesTheDocumentedHookShape(t *testing.T) {
 	path := settingsPath(t)
-	if _, err := Install(path, "/usr/local/bin/tether"); err != nil {
+	if _, err := Install(path, "/usr/local/bin/intern"); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestInstallWritesTheDocumentedHookShape(t *testing.T) {
 
 	stop := hooks["Stop"].([]any)[0].(map[string]any)
 	stopHook := stop["hooks"].([]any)[0].(map[string]any)
-	if stopHook["command"] != "/usr/local/bin/tether hooks run-stop" {
+	if stopHook["command"] != "/usr/local/bin/intern hooks run-stop" {
 		t.Fatalf("Stop command = %v, want the run-stop invocation", stopHook["command"])
 	}
 	if stopHook["type"] != "command" {
@@ -81,7 +81,7 @@ func TestInstallWritesTheDocumentedHookShape(t *testing.T) {
 
 	start := hooks["SessionStart"].([]any)[0].(map[string]any)
 	startHook := start["hooks"].([]any)[0].(map[string]any)
-	if startHook["command"] != "/usr/local/bin/tether hooks run-session-start" {
+	if startHook["command"] != "/usr/local/bin/intern hooks run-session-start" {
 		t.Fatalf("SessionStart command = %v, want the run-session-start invocation", startHook["command"])
 	}
 	if _, has := startHook["async"]; has {
@@ -91,7 +91,7 @@ func TestInstallWritesTheDocumentedHookShape(t *testing.T) {
 
 // TestInstallMergesIntoExistingUnrelatedContent is the load-bearing merge
 // test: a settings.json with another tool's hooks and unrelated top-level
-// keys must survive install with nothing lost, plus tether's own entries
+// keys must survive install with nothing lost, plus intern's own entries
 // added.
 func TestInstallMergesIntoExistingUnrelatedContent(t *testing.T) {
 	path := settingsPath(t)
@@ -129,7 +129,7 @@ func TestInstallMergesIntoExistingUnrelatedContent(t *testing.T) {
 		t.Fatalf("write existing settings: %v", err)
 	}
 
-	res, err := Install(path, "/usr/local/bin/tether")
+	res, err := Install(path, "/usr/local/bin/intern")
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -162,28 +162,28 @@ func TestInstallMergesIntoExistingUnrelatedContent(t *testing.T) {
 		t.Fatalf("PreToolUse command = %v, want the pre-existing lint-guard untouched", preHook["command"])
 	}
 
-	// The other tool's Stop hook entry survives alongside tether's new one.
+	// The other tool's Stop hook entry survives alongside intern's new one.
 	stopGroups := hooks["Stop"].([]any)
-	var sawOtherTool, sawTether bool
+	var sawOtherTool, sawIntern bool
 	for _, g := range stopGroups {
 		for _, h := range g.(map[string]any)["hooks"].([]any) {
 			cmd := h.(map[string]any)["command"]
 			if cmd == "/opt/othertool/notify-stop" {
 				sawOtherTool = true
 			}
-			if cmd == "/usr/local/bin/tether hooks run-stop" {
-				sawTether = true
+			if cmd == "/usr/local/bin/intern hooks run-stop" {
+				sawIntern = true
 			}
 		}
 	}
 	if !sawOtherTool {
 		t.Fatal("the other tool's Stop hook entry was lost")
 	}
-	if !sawTether {
-		t.Fatal("tether's own Stop hook entry was not added")
+	if !sawIntern {
+		t.Fatal("intern's own Stop hook entry was not added")
 	}
 
-	// SessionStart, absent before, now exists with only tether's entry.
+	// SessionStart, absent before, now exists with only intern's entry.
 	startGroups := hooks["SessionStart"].([]any)
 	if len(startGroups) != 1 {
 		t.Fatalf("SessionStart groups = %d, want 1", len(startGroups))
@@ -193,10 +193,10 @@ func TestInstallMergesIntoExistingUnrelatedContent(t *testing.T) {
 func TestInstallIsIdempotent(t *testing.T) {
 	path := settingsPath(t)
 
-	if _, err := Install(path, "/usr/local/bin/tether"); err != nil {
+	if _, err := Install(path, "/usr/local/bin/intern"); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
-	res, err := Install(path, "/usr/local/bin/tether")
+	res, err := Install(path, "/usr/local/bin/intern")
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
@@ -219,10 +219,10 @@ func TestInstallIsIdempotent(t *testing.T) {
 func TestInstallRepairsAStalePath(t *testing.T) {
 	path := settingsPath(t)
 
-	if _, err := Install(path, "/old/path/tether"); err != nil {
+	if _, err := Install(path, "/old/path/intern"); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
-	res, err := Install(path, "/new/path/tether")
+	res, err := Install(path, "/new/path/intern")
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestInstallRepairsAStalePath(t *testing.T) {
 	if len(commands) != 1 {
 		t.Fatalf("Stop hook commands = %v, want exactly 1 (the stale one repaired, not duplicated)", commands)
 	}
-	if commands[0] != "/new/path/tether hooks run-stop" {
+	if commands[0] != "/new/path/intern hooks run-stop" {
 		t.Fatalf("Stop command = %q, want the repaired path", commands[0])
 	}
 }
@@ -251,7 +251,7 @@ func TestInstallRepairsAStalePath(t *testing.T) {
 func TestInspectOnMissingFileReportsNotInstalled(t *testing.T) {
 	path := settingsPath(t)
 
-	st, err := Inspect(path, "/usr/local/bin/tether")
+	st, err := Inspect(path, "/usr/local/bin/intern")
 	if err != nil {
 		t.Fatalf("Inspect on a missing file: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestInspectOnMissingFileReportsNotInstalled(t *testing.T) {
 
 func TestInstallQuotesACommandPathContainingASpace(t *testing.T) {
 	path := settingsPath(t)
-	if _, err := Install(path, "/Applications/My Tools/tether"); err != nil {
+	if _, err := Install(path, "/Applications/My Tools/intern"); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -270,7 +270,7 @@ func TestInstallQuotesACommandPathContainingASpace(t *testing.T) {
 	hooks := m["hooks"].(map[string]any)
 	stopHook := hooks["Stop"].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
 	cmd := stopHook["command"].(string)
-	if cmd != `"/Applications/My Tools/tether" hooks run-stop` {
+	if cmd != `"/Applications/My Tools/intern" hooks run-stop` {
 		t.Fatalf("command = %q, want the path quoted", cmd)
 	}
 }

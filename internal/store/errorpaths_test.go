@@ -76,7 +76,7 @@ func TestOpenParentIsAFile(t *testing.T) {
 		t.Fatalf("seed blocker file: %v", err)
 	}
 
-	_, err := Open(context.Background(), filepath.Join(blocker, "sub", "tether.db"))
+	_, err := Open(context.Background(), filepath.Join(blocker, "sub", "intern.db"))
 	if err == nil {
 		t.Fatal("Open with a file where a parent directory belongs: want error, got nil")
 	}
@@ -84,7 +84,7 @@ func TestOpenParentIsAFile(t *testing.T) {
 
 func TestOpenRejectsUnopenableFile(t *testing.T) {
 	dir := t.TempDir()
-	asDir := filepath.Join(dir, "tether.db")
+	asDir := filepath.Join(dir, "intern.db")
 	if err := os.Mkdir(asDir, 0o700); err != nil {
 		t.Fatalf("seed directory standing in for the db file: %v", err)
 	}

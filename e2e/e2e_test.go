@@ -1,4 +1,4 @@
-// Package e2e drives the compiled tether binary as a real subprocess over a
+// Package e2e drives the compiled intern binary as a real subprocess over a
 // real unix socket, in both its CLI and daemon roles. Skipped by -short since
 // it forks processes and compiles a binary.
 package e2e
@@ -19,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/tether/internal/protocol"
+	"github.com/praneethravuri/intern/internal/protocol"
 )
 
-// Exit codes mirror cmd/tether/main.go; redefined here since cmd/tether is
+// Exit codes mirror cmd/intern/main.go; redefined here since cmd/intern is
 // package main, not importable.
 const (
 	exitNoDaemon = 3
@@ -30,9 +30,9 @@ const (
 	exitConflict = 5
 )
 
-// tetherBin is the path to the freshly compiled binary, set up once by
+// internBin is the path to the freshly compiled binary, set up once by
 // TestMain before any test runs.
-var tetherBin string
+var internBin string
 
 func TestMain(m *testing.M) {
 	// A custom TestMain runs before testing flags (including -short) are
@@ -46,16 +46,16 @@ func runTestMain(m *testing.M) int {
 		return m.Run() // every test skips itself; don't build binaries just to skip them
 	}
 
-	dir, err := os.MkdirTemp("", "tether-e2e-bin")
+	dir, err := os.MkdirTemp("", "intern-e2e-bin")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "e2e: mkdtemp:", err)
 		return 1
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	tetherBin = filepath.Join(dir, "tether")
+	internBin = filepath.Join(dir, "intern")
 
-	if err := buildBinary(tetherBin, "../cmd/tether"); err != nil {
+	if err := buildBinary(internBin, "../cmd/intern"); err != nil {
 		fmt.Fprintln(os.Stderr, "e2e:", err)
 		return 1
 	}
@@ -64,7 +64,7 @@ func runTestMain(m *testing.M) int {
 }
 
 // buildBinary compiles pkgDir (a path relative to this package's directory,
-// e.g. "../cmd/tether") to out, the same way an operator would.
+// e.g. "../cmd/intern") to out, the same way an operator would.
 func buildBinary(out, pkgDir string) error {
 	cmd := exec.Command("go", "build", "-o", out, pkgDir)
 	cmd.Env = os.Environ()
@@ -116,34 +116,34 @@ func daemonEnv(sock, db string) []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.TempDir(),
-		"TETHER_SOCK=" + sock,
-		"TETHER_DB=" + db,
+		"INTERN_SOCK=" + sock,
+		"INTERN_DB=" + db,
 	}
 }
 
-// cliEnv is the environment the tether CLI runs under. See daemonEnv.
+// cliEnv is the environment the intern CLI runs under. See daemonEnv.
 func cliEnv(sock string) []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.TempDir(),
-		"TETHER_SOCK=" + sock,
+		"INTERN_SOCK=" + sock,
 	}
 }
 
-// cliEnvForArgs is cliEnv with a per-agent TETHER_SESSION_ID derived from any
+// cliEnvForArgs is cliEnv with a per-agent INTERN_SESSION_ID derived from any
 // --as value in args, so each simulated agent in this suite is a genuinely
-// distinct session. See runTether's doc comment for why this matters.
+// distinct session. See runIntern's doc comment for why this matters.
 func cliEnvForArgs(sock string, args []string) []string {
 	env := cliEnv(sock)
 	for i, a := range args {
 		if a == "--as" && i+1 < len(args) && args[i+1] != "" {
-			return append(env, "TETHER_SESSION_ID=sess-"+args[i+1])
+			return append(env, "INTERN_SESSION_ID=sess-"+args[i+1])
 		}
 	}
 	return env
 }
 
-// testDaemon wraps tetherBin running with no arguments -- its daemon role.
+// testDaemon wraps internBin running with no arguments -- its daemon role.
 type testDaemon struct {
 	cmd     *exec.Cmd
 	sock    string
@@ -160,7 +160,7 @@ type testDaemon struct {
 func startDaemon(t *testing.T, sock, db string) *testDaemon {
 	t.Helper()
 
-	cmd := exec.Command(tetherBin, "start")
+	cmd := exec.Command(internBin, "start")
 	cmd.Env = daemonEnv(sock, db)
 	logBuf := &bytes.Buffer{}
 	cmd.Stdout = logBuf
@@ -209,9 +209,9 @@ func (d *testDaemon) stop(t *testing.T) {
 }
 
 // stopAutoStarted best-effort SIGTERMs the daemon that auto-start spawned for
-// sock, using the pid recorded in its lock file -- tether has no shutdown
+// sock, using the pid recorded in its lock file -- intern has no shutdown
 // RPC, and the daemon is otherwise untracked by this test process (it was
-// spawned detached, by the tether subprocess that needed it, not by us).
+// spawned detached, by the intern subprocess that needed it, not by us).
 func stopAutoStarted(t *testing.T, sock string) {
 	t.Helper()
 	raw, err := os.ReadFile(sock + ".lock")
@@ -231,14 +231,14 @@ func stopAutoStarted(t *testing.T, sock string) {
 
 // -- CLI driving --------------------------------------------------------------
 
-// cliResult is the outcome of one tether invocation.
+// cliResult is the outcome of one intern invocation.
 type cliResult struct {
 	stdout string
 	stderr string
 	code   int
 }
 
-// runTether runs the real tether binary against sock and waits for it to
+// runIntern runs the real intern binary against sock and waits for it to
 // finish. stdin is fed to the process verbatim (relevant for
 // `send --body-file -`). A generous bound stops a hung subprocess from
 // hanging the whole test run; every real command here finishes in
@@ -249,26 +249,26 @@ type cliResult struct {
 // session id. That was harmless before the daemon could rename a session's
 // existing registration, but registering a second --as name from what looks
 // like the same session is now a rename, not an independent agent -- so the
-// environment gets a TETHER_SESSION_ID derived from any --as value in args,
+// environment gets a INTERN_SESSION_ID derived from any --as value in args,
 // giving each simulated agent its own session. Scenarios that need a
 // specific session relationship (a real conflict, a dead-session reclaim)
-// still build their own env explicitly via runTetherEnv.
-func runTether(t *testing.T, sock, stdin string, args ...string) cliResult {
+// still build their own env explicitly via runInternEnv.
+func runIntern(t *testing.T, sock, stdin string, args ...string) cliResult {
 	t.Helper()
-	return runTetherEnv(t, cliEnvForArgs(sock, args), stdin, args...)
+	return runInternEnv(t, cliEnvForArgs(sock, args), stdin, args...)
 }
 
-// runTetherEnv is runTether with an explicit environment, for scenarios that
+// runInternEnv is runIntern with an explicit environment, for scenarios that
 // need to look like a different caller than the rest of the suite -- see
 // "registering a taken name exits 5" below, which has to simulate a second,
 // genuinely distinct session on purpose.
-func runTetherEnv(t *testing.T, env []string, stdin string, args ...string) cliResult {
+func runInternEnv(t *testing.T, env []string, stdin string, args ...string) cliResult {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, tetherBin, args...)
+	cmd := exec.CommandContext(ctx, internBin, args...)
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)
 
@@ -283,23 +283,23 @@ func runTetherEnv(t *testing.T, env []string, stdin string, args ...string) cliR
 		if errors.As(err, &ee) {
 			code = ee.ExitCode()
 		} else {
-			t.Fatalf("run tether %v: %v\nstdout:\n%s\nstderr:\n%s", args, err, stdout.String(), stderr.String())
+			t.Fatalf("run intern %v: %v\nstdout:\n%s\nstderr:\n%s", args, err, stdout.String(), stderr.String())
 		}
 	}
 	return cliResult{stdout: stdout.String(), stderr: stderr.String(), code: code}
 }
 
-// startBackground starts the tether binary without waiting for it, for the
+// startBackground starts the intern binary without waiting for it, for the
 // wait scenarios that need to overlap with another command.
 func startBackground(t *testing.T, sock string, args ...string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
-	cmd := exec.Command(tetherBin, args...)
+	cmd := exec.Command(internBin, args...)
 	cmd.Env = cliEnvForArgs(sock, args)
 	cmd.Stdin = strings.NewReader("")
 	out := &bytes.Buffer{}
 	cmd.Stdout = out
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start tether %v: %v", args, err)
+		t.Fatalf("start intern %v: %v", args, err)
 	}
 	return cmd, out
 }
@@ -348,9 +348,9 @@ func bodiesOf(msgs []protocol.MessageView) []string {
 	return out
 }
 
-// doctorJSON is the subset of `tether doctor --json`'s output this test
-// cares about. The full shape (doctorReport) is unexported in cmd/tether, and
-// cmd/tether is package main so it cannot be imported anyway -- this mirrors
+// doctorJSON is the subset of `intern doctor --json`'s output this test
+// cares about. The full shape (doctorReport) is unexported in cmd/intern, and
+// cmd/intern is package main so it cannot be imported anyway -- this mirrors
 // only the fields under test, which is exactly what `doctor` promises to
 // keep stable.
 type doctorJSON struct {
@@ -360,7 +360,7 @@ type doctorJSON struct {
 
 // -- the end-to-end test ------------------------------------------------------
 
-// TestEndToEnd drives the compiled tether binary, in both its CLI and daemon
+// TestEndToEnd drives the compiled intern binary, in both its CLI and daemon
 // roles, through a full session: registration, messaging, the ack/replay
 // contract, the wake path, conflicts, failure modes, doctor, and a daemon
 // restart. See the package doc for why this exists alongside the unit tests.
@@ -368,7 +368,7 @@ func TestEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
-	if tetherBin == "" {
+	if internBin == "" {
 		t.Fatal("binary was not built by TestMain")
 	}
 
@@ -376,7 +376,7 @@ func TestEndToEnd(t *testing.T) {
 
 	dir := shortTempDir(t)
 	sock := filepath.Join(dir, "sock")
-	db := filepath.Join(dir, "tether.db")
+	db := filepath.Join(dir, "intern.db")
 
 	// Exactly one cleanup owns stopping "whatever daemon is current", so the
 	// restart scenario can swap the pointer without double-registering.
@@ -390,18 +390,18 @@ func TestEndToEnd(t *testing.T) {
 
 	// 1. register --as frontend and --as backend both succeed.
 	t.Run("register both agents", func(t *testing.T) {
-		r := runTether(t, sock, "", "register", "--as", "frontend", "--workspace", ws)
+		r := runIntern(t, sock, "", "register", "--as", "frontend", "--workspace", ws)
 		requireExit(t, r, 0, "register frontend")
 		requireContains(t, r.stdout, "registered frontend@"+ws, "register frontend stdout")
 
-		r = runTether(t, sock, "", "register", "--as", "backend", "--workspace", ws)
+		r = runIntern(t, sock, "", "register", "--as", "backend", "--workspace", ws)
 		requireExit(t, r, 0, "register backend")
 		requireContains(t, r.stdout, "registered backend@"+ws, "register backend stdout")
 	})
 
 	// 2. ls lists both.
 	t.Run("ls lists both", func(t *testing.T) {
-		r := runTether(t, sock, "", "ls", "--workspace", ws, "--json")
+		r := runIntern(t, sock, "", "ls", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "ls")
 
 		var res protocol.LsResult
@@ -426,11 +426,11 @@ func TestEndToEnd(t *testing.T) {
 		// shape now, and running it through the real compiled binary is what
 		// proves cobra's Args wiring for "send <to> [body]" actually works,
 		// not just the in-process cmd_send_test.go coverage.
-		r := runTether(t, sock, "", "send", "--as", "backend", "--workspace", ws,
+		r := runIntern(t, sock, "", "send", "--as", "backend", "--workspace", ws,
 			"frontend", helloBody)
 		requireExit(t, r, 0, "send backend->frontend")
 
-		r = runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--peek", "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--peek", "--json")
 		requireExit(t, r, 0, "inbox frontend")
 
 		var res protocol.InboxResult
@@ -454,7 +454,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		for i := 0; i < 2; i++ {
-			r := runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--peek", "--json")
+			r := runIntern(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--peek", "--json")
 			requireExit(t, r, 0, fmt.Sprintf("inbox --peek #%d", i+1))
 
 			var res protocol.InboxResult
@@ -464,7 +464,7 @@ func TestEndToEnd(t *testing.T) {
 			}
 		}
 
-		r := runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--json")
+		r := runIntern(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "inbox (drain)")
 		var drained protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &drained)
@@ -472,7 +472,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("draining inbox did not return the message: %v", bodiesOf(drained.Messages))
 		}
 
-		r = runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "inbox after drain")
 		var afterDrain protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &afterDrain)
@@ -480,7 +480,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("inbox after drain = %v, want empty", bodiesOf(afterDrain.Messages))
 		}
 
-		r = runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--replay", "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--replay", "--json")
 		requireExit(t, r, 0, "inbox --replay")
 		var replay protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &replay)
@@ -493,16 +493,16 @@ func TestEndToEnd(t *testing.T) {
 	// workspace and never the sender. A third real agent is registered here
 	// specifically so the broadcast has more than one recipient to land in.
 	t.Run("send '*' broadcasts to every other agent, not the sender", func(t *testing.T) {
-		r := runTether(t, sock, "", "register", "--as", "reviewer", "--workspace", ws)
+		r := runIntern(t, sock, "", "register", "--as", "reviewer", "--workspace", ws)
 		requireExit(t, r, 0, "register reviewer")
 
 		const broadcastBody = "deploying in 5, heads up"
-		r = runTether(t, sock, "", "send", "--as", "backend", "--workspace", ws,
+		r = runIntern(t, sock, "", "send", "--as", "backend", "--workspace", ws,
 			"*", broadcastBody)
 		requireExit(t, r, 0, "broadcast send")
 		requireContains(t, r.stdout, "2 agents", "broadcast send stdout")
 
-		r = runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--peek", "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--peek", "--json")
 		requireExit(t, r, 0, "inbox frontend after broadcast")
 		var frontendInbox protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &frontendInbox)
@@ -510,7 +510,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("frontend did not receive the broadcast: %v", bodiesOf(frontendInbox.Messages))
 		}
 
-		r = runTether(t, sock, "", "inbox", "--as", "reviewer", "--workspace", ws, "--peek", "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "reviewer", "--workspace", ws, "--peek", "--json")
 		requireExit(t, r, 0, "inbox reviewer after broadcast")
 		var reviewerInbox protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &reviewerInbox)
@@ -518,7 +518,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("reviewer did not receive the broadcast: %v", bodiesOf(reviewerInbox.Messages))
 		}
 
-		r = runTether(t, sock, "", "inbox", "--as", "backend", "--workspace", ws, "--peek", "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "backend", "--workspace", ws, "--peek", "--json")
 		requireExit(t, r, 0, "inbox backend (the sender) after broadcast")
 		var senderInbox protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &senderInbox)
@@ -527,11 +527,11 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// Headline scenario: tether wait wakes promptly on a real send from a
+	// Headline scenario: intern wait wakes promptly on a real send from a
 	// real second process. No sleep needed: handleWait subscribes before
 	// checking pending count, so either ordering wakes correctly.
 	t.Run("wait wakes on send (headline scenario)", func(t *testing.T) {
-		r := runTether(t, sock, "", "register", "--as", "sleepy", "--workspace", ws)
+		r := runIntern(t, sock, "", "register", "--as", "sleepy", "--workspace", ws)
 		requireExit(t, r, 0, "register sleepy")
 
 		start := time.Now()
@@ -541,7 +541,7 @@ func TestEndToEnd(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- waitCmd.Wait() }()
 
-		r = runTether(t, sock, "", "send", "--as", "backend", "--workspace", ws,
+		r = runIntern(t, sock, "", "send", "--as", "backend", "--workspace", ws,
 			"sleepy", "wake up")
 		requireExit(t, r, 0, "send to sleepy")
 
@@ -581,11 +581,11 @@ func TestEndToEnd(t *testing.T) {
 
 	// 6. wait with a short timeout and no mail exits 4.
 	t.Run("wait times out with no mail", func(t *testing.T) {
-		r := runTether(t, sock, "", "register", "--as", "lonely", "--workspace", ws)
+		r := runIntern(t, sock, "", "register", "--as", "lonely", "--workspace", ws)
 		requireExit(t, r, 0, "register lonely")
 
 		start := time.Now()
-		r = runTether(t, sock, "", "wait", "--as", "lonely", "--workspace", ws, "--timeout", "1s")
+		r = runIntern(t, sock, "", "wait", "--as", "lonely", "--workspace", ws, "--timeout", "1s")
 		elapsed := time.Since(start)
 
 		requireExit(t, r, exitTimeout, "wait with no mail")
@@ -596,21 +596,21 @@ func TestEndToEnd(t *testing.T) {
 	})
 
 	// Every invocation in this file shares one parent process, so without
-	// TETHER_SESSION_ID they'd all derive the same synthetic session id
+	// INTERN_SESSION_ID they'd all derive the same synthetic session id
 	// (correctly idempotent). A real conflict needs an explicit distinct session.
 	t.Run("registering a taken name exits 5", func(t *testing.T) {
-		env := append(append([]string{}, cliEnv(sock)...), "TETHER_SESSION_ID=intruder-session")
-		r := runTetherEnv(t, env, "", "register", "--as", "frontend", "--workspace", ws)
+		env := append(append([]string{}, cliEnv(sock)...), "INTERN_SESSION_ID=intruder-session")
+		r := runInternEnv(t, env, "", "register", "--as", "frontend", "--workspace", ws)
 		requireExit(t, r, exitConflict, "re-register frontend")
 		requireContains(t, r.stderr, "held by a live agent", "conflict stderr")
 	})
 
 	t.Run("double register with no recognised harness is idempotent", func(t *testing.T) {
-		r := runTether(t, sock, "", "register", "--as", "idempotent", "--workspace", ws)
+		r := runIntern(t, sock, "", "register", "--as", "idempotent", "--workspace", ws)
 		requireExit(t, r, 0, "first register")
 		requireContains(t, r.stdout, "registered idempotent@"+ws, "first register stdout")
 
-		r = runTether(t, sock, "", "register", "--as", "idempotent", "--workspace", ws)
+		r = runIntern(t, sock, "", "register", "--as", "idempotent", "--workspace", ws)
 		requireExit(t, r, 0, "second register")
 		requireContains(t, r.stdout, "refreshed registration for idempotent@"+ws, "second register stdout")
 	})
@@ -655,15 +655,15 @@ func TestEndToEnd(t *testing.T) {
 		}
 		_ = holder.Wait()
 
-		env := append(append([]string{}, cliEnv(sock)...), "TETHER_SESSION_ID=rescuer-session")
-		r := runTetherEnv(t, env, "", "register", "--as", "doomed", "--workspace", ws)
+		env := append(append([]string{}, cliEnv(sock)...), "INTERN_SESSION_ID=rescuer-session")
+		r := runInternEnv(t, env, "", "register", "--as", "doomed", "--workspace", ws)
 		requireExit(t, r, 0, "reclaim of a dead session's name")
 	})
 
 	// send --as X from a session that doesn't hold X must fail, not forge mail.
 	t.Run("send --as an unowned name from an intruder session exits 5", func(t *testing.T) {
-		env := append(append([]string{}, cliEnv(sock)...), "TETHER_SESSION_ID=send-intruder-session")
-		r := runTetherEnv(t, env, "", "send", "--as", "frontend", "--workspace", ws,
+		env := append(append([]string{}, cliEnv(sock)...), "INTERN_SESSION_ID=send-intruder-session")
+		r := runInternEnv(t, env, "", "send", "--as", "frontend", "--workspace", ws,
 			"backend", "forged message")
 		requireExit(t, r, exitConflict, "send as an unowned name")
 	})
@@ -702,11 +702,11 @@ func TestEndToEnd(t *testing.T) {
 			"\ttab\tindented\n" +
 			"final line, no trailing newline"
 
-		r := runTether(t, sock, body, "send", "--as", "backend", "--workspace", ws,
+		r := runIntern(t, sock, body, "send", "--as", "backend", "--workspace", ws,
 			"frontend", "--body-file", "-")
 		requireExit(t, r, 0, "send with --body-file -")
 
-		r = runTether(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "frontend", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "inbox after hostile body send")
 
 		var res protocol.InboxResult
@@ -721,11 +721,11 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// 9. No daemon (TETHER_SOCK pointing at a nonexistent path) auto-starts
+	// 9. No daemon (INTERN_SOCK pointing at a nonexistent path) auto-starts
 	// one instead of failing -- the Phase 3 headline behavior. Isolated
 	// socket/db/home so the daemon it spawns can't leak into other
 	// scenarios, and cleaned up via the pid its own lock file records
-	// (tether has no shutdown RPC).
+	// (intern has no shutdown RPC).
 	t.Run("no daemon auto-starts one", func(t *testing.T) {
 		autoDir := shortTempDir(t)
 		autoHome := filepath.Join(autoDir, "home")
@@ -736,11 +736,11 @@ func TestEndToEnd(t *testing.T) {
 		env := []string{
 			"PATH=" + os.Getenv("PATH"),
 			"HOME=" + autoHome,
-			"TETHER_SOCK=" + autoSock,
-			"TETHER_DB=" + filepath.Join(autoDir, "tether.db"),
+			"INTERN_SOCK=" + autoSock,
+			"INTERN_DB=" + filepath.Join(autoDir, "intern.db"),
 		}
 
-		r := runTetherEnv(t, env, "", "ls", "--workspace", ws)
+		r := runInternEnv(t, env, "", "ls", "--workspace", ws)
 		requireExit(t, r, 0, "ls with no daemon (should auto-start one)")
 		requireContains(t, r.stdout, "0 agents", "auto-started daemon's ls output")
 
@@ -753,7 +753,7 @@ func TestEndToEnd(t *testing.T) {
 	// nothing.
 	t.Run("doctor never auto-starts", func(t *testing.T) {
 		deadSock := filepath.Join(dir, "no-such-socket-for-doctor")
-		r := runTether(t, deadSock, "", "doctor", "--workspace", ws)
+		r := runIntern(t, deadSock, "", "doctor", "--workspace", ws)
 		requireExit(t, r, exitNoDaemon, "doctor with no daemon")
 		requireContains(t, r.stdout, "no daemon running", "doctor stdout")
 		if _, err := os.Stat(deadSock); err == nil {
@@ -763,7 +763,7 @@ func TestEndToEnd(t *testing.T) {
 
 	// 11. doctor reports the daemon reachable and lists agents.
 	t.Run("doctor reports daemon reachable and lists agents", func(t *testing.T) {
-		r := runTether(t, sock, "", "doctor", "--workspace", ws, "--json")
+		r := runIntern(t, sock, "", "doctor", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "doctor")
 
 		var rep doctorJSON
@@ -782,19 +782,19 @@ func TestEndToEnd(t *testing.T) {
 	})
 
 	// 12. Restart durability: a message survives a SIGTERM + restart against
-	// the same TETHER_DB. This is the last scenario to use the daemon.
+	// the same INTERN_DB. This is the last scenario to use the daemon.
 	t.Run("message survives a daemon restart", func(t *testing.T) {
-		r := runTether(t, sock, "", "register", "--as", "durable", "--workspace", ws)
+		r := runIntern(t, sock, "", "register", "--as", "durable", "--workspace", ws)
 		requireExit(t, r, 0, "register durable")
 
 		const survivorBody = "this message must survive a restart"
-		r = runTether(t, sock, "", "send", "--as", "backend", "--workspace", ws,
+		r = runIntern(t, sock, "", "send", "--as", "backend", "--workspace", ws,
 			"durable", survivorBody)
 		requireExit(t, r, 0, "send to durable")
 
 		// --peek: this must not consume the message, or "after restart"
 		// below would find nothing and prove nothing about durability.
-		r = runTether(t, sock, "", "inbox", "--as", "durable", "--workspace", ws, "--peek", "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "durable", "--workspace", ws, "--peek", "--json")
 		requireExit(t, r, 0, "inbox before restart")
 		var before protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &before)
@@ -802,11 +802,11 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("message not visible before restart: %v", bodiesOf(before.Messages))
 		}
 
-		// SIGTERM the daemon and restart it against the same TETHER_DB.
+		// SIGTERM the daemon and restart it against the same INTERN_DB.
 		d.stop(t)
 		d = startDaemon(t, sock, db)
 
-		r = runTether(t, sock, "", "inbox", "--as", "durable", "--workspace", ws, "--json")
+		r = runIntern(t, sock, "", "inbox", "--as", "durable", "--workspace", ws, "--json")
 		requireExit(t, r, 0, "inbox after restart")
 		var after protocol.InboxResult
 		unmarshalJSON(t, r.stdout, &after)
@@ -815,18 +815,18 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// 13. tether version prints something. Does not touch the daemon.
+	// 13. intern version prints something. Does not touch the daemon.
 	t.Run("version prints something", func(t *testing.T) {
-		r := runTether(t, sock, "", "version")
+		r := runIntern(t, sock, "", "version")
 		requireExit(t, r, 0, "version")
 		if strings.TrimSpace(r.stdout) == "" {
-			t.Fatal("tether version produced no output")
+			t.Fatal("intern version produced no output")
 		}
 	})
 }
 
 // TestStartRunsTheDaemon is the one-binary headline scenario: no separate
-// daemon binary exists, so `tether start` must itself become the daemon --
+// daemon binary exists, so `intern start` must itself become the daemon --
 // print the banner, accept connections, and shut down cleanly on SIGINT.
 func TestStartRunsTheDaemon(t *testing.T) {
 	if testing.Short() {
@@ -835,21 +835,21 @@ func TestStartRunsTheDaemon(t *testing.T) {
 
 	dir := shortTempDir(t)
 	sock := filepath.Join(dir, "sock")
-	db := filepath.Join(dir, "tether.db")
+	db := filepath.Join(dir, "intern.db")
 
-	cmd := exec.Command(tetherBin, "start")
+	cmd := exec.Command(internBin, "start")
 	cmd.Env = daemonEnv(sock, db)
 	out := &bytes.Buffer{}
 	cmd.Stdout = out
 	cmd.Stderr = out
 
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start tether start: %v", err)
+		t.Fatalf("start intern start: %v", err)
 	}
 	waitDialable(t, sock, 10*time.Second)
 
-	r := runTether(t, sock, "", "ls", "--json")
-	requireExit(t, r, 0, "ls against the tether start daemon")
+	r := runIntern(t, sock, "", "ls", "--json")
+	requireExit(t, r, 0, "ls against the intern start daemon")
 
 	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
 		t.Fatalf("signal SIGINT: %v", err)
@@ -859,11 +859,11 @@ func TestStartRunsTheDaemon(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("tether start did not exit cleanly on SIGINT: %v\noutput:\n%s", err, out.String())
+			t.Fatalf("intern start did not exit cleanly on SIGINT: %v\noutput:\n%s", err, out.String())
 		}
 	case <-time.After(5 * time.Second):
 		_ = cmd.Process.Kill()
-		t.Fatal("tether start did not exit within 5s of SIGINT")
+		t.Fatal("intern start did not exit within 5s of SIGINT")
 	}
 
 	// out is only safe to read now that the process (and its stdout-copying
@@ -872,17 +872,17 @@ func TestStartRunsTheDaemon(t *testing.T) {
 	requireContains(t, out.String(), sock, "banner")
 }
 
-// TestDemo runs `tether demo` as a real subprocess: it must spin up its own
+// TestDemo runs `intern demo` as a real subprocess: it must spin up its own
 // daemon, actually exchange a message between two agents it registers
 // itself, print the exchange, and exit 0 well inside its own bounded
-// runtime. This is `demo`'s safety-in-CI bar (see cmd/tether/cmd_demo.go),
+// runtime. This is `demo`'s safety-in-CI bar (see cmd/intern/cmd_demo.go),
 // distinct from the unit-level coverage of its pure helpers in
-// cmd/tether/cmd_demo_test.go.
+// cmd/intern/cmd_demo_test.go.
 func TestDemo(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
-	if tetherBin == "" {
+	if internBin == "" {
 		t.Fatal("binary was not built by TestMain")
 	}
 
@@ -890,17 +890,17 @@ func TestDemo(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	cmd := exec.CommandContext(ctx, tetherBin, "demo")
+	cmd := exec.CommandContext(ctx, internBin, "demo")
 	cmd.Env = os.Environ()
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("tether demo failed: %v\noutput:\n%s", err, out.String())
+		t.Fatalf("intern demo failed: %v\noutput:\n%s", err, out.String())
 	}
 	if elapsed := time.Since(start); elapsed > 20*time.Second {
-		t.Fatalf("tether demo took %s, want well under 20s", elapsed)
+		t.Fatalf("intern demo took %s, want well under 20s", elapsed)
 	}
 
 	transcript := out.String()

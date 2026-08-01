@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/praneethravuri/tether/internal/proc"
+	"github.com/praneethravuri/intern/internal/proc"
 )
 
 // TryLock attempts to become the sole runner for key under dir (created if

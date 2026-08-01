@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestAcquireLock_ExclusiveBetweenTwoCallers is L4: two tetherd processes
+// TestAcquireLock_ExclusiveBetweenTwoCallers is L4: two intern daemon processes
 // racing to start against the same socket must not both proceed. This is
 // the direct, single-threaded version of that guarantee; see
 // TestAcquireLock_ConcurrentCallersOnlyOneWins for the version that actually
@@ -31,7 +31,7 @@ func TestAcquireLock_ExclusiveBetweenTwoCallers(t *testing.T) {
 
 // TestAcquireLock_StaleLockFromADeadProcessIsReclaimed mirrors
 // daemonIsLive's own handling of a leftover socket file: a lock file from a
-// tetherd that crashed without cleaning up must not permanently block every
+// intern daemon process that crashed without cleaning up must not permanently block every
 // future start.
 func TestAcquireLock_StaleLockFromADeadProcessIsReclaimed(t *testing.T) {
 	dir := shortTempDir(t)
@@ -89,7 +89,7 @@ func TestAcquireLock_RecycledPIDIsReclaimed(t *testing.T) {
 }
 
 // TestAcquireLock_LegacySingleFieldFileStillHonoured proves a lock file
-// written by an older tether (pid only, no start time) still blocks a
+// written by an older intern (pid only, no start time) still blocks a
 // second start when that pid is genuinely alive -- start 0 is proc.AliveAt's
 // "unknown," which falls back to a plain pid check.
 func TestAcquireLock_LegacySingleFieldFileStillHonoured(t *testing.T) {
@@ -131,7 +131,7 @@ func TestAcquireLock_ReleaseThenReacquire(t *testing.T) {
 
 // TestAcquireLock_ConcurrentCallersOnlyOneWins is the actual L4 scenario:
 // several goroutines racing acquireLock against the same path at once, the
-// way two tetherd processes starting simultaneously would race the
+// way two intern daemon processes starting simultaneously would race the
 // underlying O_EXCL create. Exactly one may win.
 func TestAcquireLock_ConcurrentCallersOnlyOneWins(t *testing.T) {
 	dir := shortTempDir(t)
@@ -181,7 +181,7 @@ func TestReadLockIdentity_RoundTrip(t *testing.T) {
 }
 
 // TestReadLockIdentity_LegacySingleField proves a pid-only file (written by
-// an older tether) parses with start 0, rather than failing.
+// an older intern) parses with start 0, rather than failing.
 func TestReadLockIdentity_LegacySingleField(t *testing.T) {
 	dir := shortTempDir(t)
 	path := filepath.Join(dir, "s.lock")

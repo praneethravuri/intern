@@ -4,7 +4,7 @@ about: Something doesn't work the way it should
 labels: bug
 ---
 
-**`tether version` output:**
+**`intern version` output:**
 
 **OS/arch:**
 
