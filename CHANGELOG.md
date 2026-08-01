@@ -15,4 +15,4 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Automated release PR and artifact publishing workflow using release-please and GoReleaser.
+- Published v0.2.0 manually with GoReleaser; future releases use explicit version tags.
