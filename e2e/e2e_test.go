@@ -871,3 +871,43 @@ func TestStartRunsTheDaemon(t *testing.T) {
 	requireContains(t, out.String(), "running the daemon in the foreground", "banner")
 	requireContains(t, out.String(), sock, "banner")
 }
+
+// TestDemo runs `tether demo` as a real subprocess: it must spin up its own
+// daemon, actually exchange a message between two agents it registers
+// itself, print the exchange, and exit 0 well inside its own bounded
+// runtime. This is `demo`'s safety-in-CI bar (see cmd/tether/cmd_demo.go),
+// distinct from the unit-level coverage of its pure helpers in
+// cmd/tether/cmd_demo_test.go.
+func TestDemo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+	if tetherBin == "" {
+		t.Fatal("binary was not built by TestMain")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, tetherBin, "demo")
+	cmd.Env = os.Environ()
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("tether demo failed: %v\noutput:\n%s", err, out.String())
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Second {
+		t.Fatalf("tether demo took %s, want well under 20s", elapsed)
+	}
+
+	transcript := out.String()
+	requireContains(t, transcript, "isolated daemon", "demo transcript")
+	requireContains(t, transcript, "[frontend]", "demo transcript")
+	requireContains(t, transcript, "[backend]", "demo transcript")
+	requireContains(t, transcript, "cursor, not an offset", "demo transcript")
+	requireContains(t, transcript, "updating the client", "demo transcript")
+	requireContains(t, transcript, "demo complete", "demo transcript")
+}

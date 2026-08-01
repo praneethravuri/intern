@@ -109,7 +109,7 @@ Both agents resolved the same workspace — the basename of the git root — so 
 
 ## CLI Reference
 
-`--json` is accepted by every command except `version` and bare `tether`. `--as <name>` and `--workspace <name>` are accepted by `register`, `send`, `inbox`, `wait`, and `explain`; `ls` and `doctor` accept `--workspace` but not `--as`; `version` and bare `tether` accept neither. Every identity-bearing command auto-starts the daemon if it isn't running, and also registers implicitly if you never called `register` yourself — usually minting a name from your harness, `<harness>-<hex4>` — except `doctor`, which only diagnoses and never auto-starts.
+`--json` is accepted by every command except `version`, `top`, and bare `tether`. `--as <name>` and `--workspace <name>` are accepted by `register`, `send`, `inbox`, `wait`, and `explain`; `ls`, `top`, and `doctor` accept `--workspace` but not `--as`; `version`, `demo`, and bare `tether` accept neither. Every identity-bearing command auto-starts the daemon if it isn't running, and also registers implicitly if you never called `register` yourself — usually minting a name from your harness, `<harness>-<hex4>` — except `doctor`, which only diagnoses and never auto-starts.
 
 | Command | What it does |
 | --- | --- |
@@ -120,8 +120,10 @@ Both agents resolved the same workspace — the basename of the git root — so 
 | `tether inbox` | Shows messages waiting for you and acknowledges them in the same call (draining). |
 | `tether wait` | Blocks until mail is waiting. Exits 0 as soon as there is something to read, 4 on timeout. |
 | `tether ls` | Lists registered agents: address, harness, computed state, pending count, last seen. |
+| `tether top` | Same fleet view as `ls`, refreshing on a timer until Ctrl-C — `htop` for agents. |
 | `tether explain [name[@workspace]]` (alias `status`) | Explains one agent's computed state, the evidence behind it, and its pending mail. Defaults to you. |
 | `tether doctor` | Diagnoses the daemon, resolved workspace, detected harness, database health, and every agent. Never auto-starts. |
+| `tether demo` | Spins up an isolated daemon and runs a real handoff between two scripted agents, so you can watch tether work without any setup. |
 | `tether version` | Prints the version. |
 
 `ls`/`explain` compute a state fresh on every call, never stored, in priority order: `gone` (pid no longer alive) → `blocked` (parked in a live `wait`) → `working` (ran a command in the last 60s) → `quiet` (ran one, just not recently) → `unknown` (registered, nothing observed yet). `register --doing "compiling tests, ~5min"` sets a note that `explain` shows in place of the generic evidence string, for anything that runs long enough to otherwise read as quiet.
@@ -139,6 +141,8 @@ Both agents resolved the same workspace — the basename of the git root — so 
 | `inbox` | `--full` | show every message body in full, skipping truncation |
 | `wait` | `--timeout <duration>` | how long to block (default `60s`, max `24h`) |
 | `ls` | `--all` | list agents in every workspace, not just this one |
+| `top` | `--all` | watch agents in every workspace, not just this one |
+| `top` | `--interval <duration>` | refresh interval (default `2s`) |
 | `register` | `--doing <text>` | what you're doing right now, shown by `explain` |
 
 `--as`, `--workspace`, and `--json` apply as described under [CLI Reference](#cli-reference) and are omitted from this table.

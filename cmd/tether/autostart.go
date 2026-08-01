@@ -61,14 +61,23 @@ func autoStartDaemon(sock string) error {
 	}
 	go func() { _ = cmd.Wait() }() // reap it; nothing here waits on it directly
 
-	deadline := time.Now().Add(autoStartTimeout)
+	if !dialableWithin(sock, autoStartTimeout) {
+		return fmt.Errorf("did not become reachable within %s", autoStartTimeout)
+	}
+	return nil
+}
+
+// dialableWithin polls sock until something accepts a connection or timeout
+// elapses. Shared by auto-start and by `tether demo`'s own isolated daemon.
+func dialableWithin(sock string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("unix", sock, 200*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
-			return nil
+			return true
 		}
 		time.Sleep(autoStartPollInterval)
 	}
-	return fmt.Errorf("did not become reachable within %s", autoStartTimeout)
+	return false
 }
