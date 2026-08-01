@@ -21,8 +21,10 @@ Every other command registers implicitly before its real request, so running
 this explicitly is optional -- it exists to let you pick a name and see it
 confirmed up front. With no name at all, the daemon mints one and reports it.
 
-Running this again with a different name renames you in place, and moves
-your pending mail along with it -- your old name stops working immediately.`
+Running this again with the same name refreshes it. In a plain shell, choosing
+a different explicit name creates a separate agent; use --as <name> on
+agent-specific commands. A harness that supplies its own session id retains
+its rename behavior.`
 
 type registerOptions struct {
 	identityFlags
@@ -63,7 +65,7 @@ func runRegister(cmd *cobra.Command, args []string, opts *registerOptions) error
 		return failf(exitGeneral, "cannot determine the current directory: %v", err)
 	}
 
-	harness, sessionID := currentSession()
+	harness, sessionID := currentSessionForAgent(name)
 
 	params := protocol.RegisterParams{
 		Name:      name,

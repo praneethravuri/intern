@@ -293,59 +293,24 @@ func resultHandler(results map[string]any) handlerFunc {
 	}
 }
 
+func TestShellAgentsStaySeparate(t *testing.T) {
+	run := startTestIntern(t)
+	workspace := "same-shell-workspace"
+
+	run("", "register", "sender", "--workspace", workspace)
+	run("", "register", "recipient", "--workspace", workspace)
+	run("", "register", "sender", "--workspace", workspace)
+
+	var listed protocol.LsResult
+	unmarshalJSON(t, run("", "ls", "--workspace", workspace), &listed)
+	if len(listed.Agents) != 2 || listed.Agents[0].Name != "recipient" || listed.Agents[1].Name != "sender" {
+		t.Fatalf("registered agents = %+v, want sender and recipient", listed.Agents)
+	}
+}
+
 func TestRealProcessHandoff(t *testing.T) {
-	dir := t.TempDir()
-	binary := filepath.Join(dir, "intern")
-	// #nosec G204 -- the test controls the go tool and its temporary output path.
-	build := exec.Command("go", "build", "-o", binary, ".")
-	build.Env = os.Environ()
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build intern binary: %v\n%s", err, output)
-	}
-
-	socket := filepath.Join(dir, "sock")
-	database := filepath.Join(dir, "intern.db")
+	run := startTestIntern(t)
 	workspace := "handoff-workspace"
-	// #nosec G204 -- binary was built by this test in t.TempDir.
-	daemon := exec.Command(binary, "start")
-	daemon.Env = handoffEnv(socket, database, dir, "daemon-session")
-	if err := daemon.Start(); err != nil {
-		t.Fatalf("start daemon: %v", err)
-	}
-	t.Cleanup(func() {
-		if daemon.Process == nil {
-			return
-		}
-		if err := daemon.Process.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
-			t.Errorf("interrupt daemon: %v", err)
-		}
-		done := make(chan error, 1)
-		go func() { done <- daemon.Wait() }()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("wait for daemon: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			if err := daemon.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				t.Errorf("kill daemon: %v", err)
-			}
-			<-done
-		}
-	})
-	waitForSocket(t, socket)
-
-	run := func(session string, args ...string) string {
-		t.Helper()
-		// #nosec G204 -- binary was built by this test in t.TempDir; args are literals below.
-		cmd := exec.Command(binary, args...)
-		cmd.Env = handoffEnv(socket, database, dir, session)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("intern %s: %v\n%s", strings.Join(args, " "), err, output)
-		}
-		return string(output)
-	}
 
 	var sender protocol.RegisterResult
 	unmarshalJSON(t, run("sender-session", "register", "sender", "--workspace", workspace), &sender)
@@ -378,6 +343,61 @@ func TestRealProcessHandoff(t *testing.T) {
 	if len(inbox.Messages) != 1 || inbox.Messages[0].ID != sent.MessageID ||
 		inbox.Messages[0].Kind != kindHandoff || inbox.Messages[0].Body != "handoff body" || inbox.Cleared != 1 {
 		t.Fatalf("inbox result = %+v", inbox)
+	}
+}
+
+func startTestIntern(t *testing.T) func(string, ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "intern")
+	// #nosec G204 -- the test controls the go tool and its temporary output path.
+	build := exec.Command("go", "build", "-o", binary, ".")
+	build.Env = os.Environ()
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build intern binary: %v\n%s", err, output)
+	}
+
+	socket := filepath.Join(dir, "sock")
+	database := filepath.Join(dir, "intern.db")
+	// #nosec G204 -- binary was built by this test in t.TempDir.
+	daemon := exec.Command(binary, "start")
+	daemon.Env = handoffEnv(socket, database, dir, "")
+	if err := daemon.Start(); err != nil {
+		t.Fatalf("start daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		if daemon.Process == nil {
+			return
+		}
+		if err := daemon.Process.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			t.Errorf("interrupt daemon: %v", err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- daemon.Wait() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("wait for daemon: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			if err := daemon.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				t.Errorf("kill daemon: %v", err)
+			}
+			<-done
+		}
+	})
+	waitForSocket(t, socket)
+
+	return func(session string, args ...string) string {
+		t.Helper()
+		// #nosec G204 -- binary was built by this test in t.TempDir; args are literals below.
+		cmd := exec.Command(binary, args...)
+		cmd.Env = handoffEnv(socket, database, dir, session)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("intern %s: %v\n%s", strings.Join(args, " "), err, output)
+		}
+		return string(output)
 	}
 }
 

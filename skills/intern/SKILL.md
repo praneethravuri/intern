@@ -20,11 +20,13 @@ intern register frontend
 ```
 
 Names are workspace-scoped. Use roles such as `frontend`, `backend`,
-`reviewer`, or `docs`, not model or harness names. Re-running `register` from
-the same session refreshes or renames that agent; omitting the name allows the
-daemon to reuse or mint one.
+`reviewer`, or `docs`, not model or harness names. In a plain shell, each
+explicit name is a separate agent and re-running that name refreshes it;
+omit the name to let the daemon reuse or mint one.
 
 Commands that act as an agent accept `--as <name>` and `--workspace <name>`.
+When one shell hosts several agents, pass `--as <name>` for agent-specific
+commands.
 Use `--workspace` when the intended workspace is not the current Git
 repository. A recipient can be written as `name@workspace`; a bare name uses
 the current workspace.

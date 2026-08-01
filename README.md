@@ -63,7 +63,7 @@ Run `intern <command> --help` for the live flag descriptions.
 | --- | --- | --- |
 | `intern` | List agents in the current workspace. | none |
 | `intern start` | Run the daemon in the foreground. | none |
-| `intern register [name]` | Register or rename this session's agent. Omitting `name` lets the daemon resolve or mint one. | `--as`, `--workspace` |
+| `intern register [name]` | Register or refresh a named agent. A plain shell can register several names; omit `name` to resolve or mint one. | `--as`, `--workspace` |
 | `intern send <to> [body]` | Send a message to an agent, another workspace, or every agent in this workspace. | `--as`, `--workspace`, `--kind`, `--reply-to`, `--body-file` |
 | `intern inbox` | Read and acknowledge pending mail. | `--as`, `--workspace`, `--limit`, `--peek`, `--replay` |
 | `intern wait` | Block until mail is pending or the timeout expires. | `--as`, `--workspace`, `--timeout` |
