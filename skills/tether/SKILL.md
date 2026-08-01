@@ -41,8 +41,8 @@ tether ls
 
 Lists every registered agent in this workspace: name, harness, computed state
 (`gone`/`blocked`/`working`/`quiet`/`unknown`), pending message count, last
-seen. Always type `tether ls` explicitly — bare `tether` starts the daemon in
-the foreground, it does not list agents.
+seen. Bare `tether` (no arguments) only glances at your own inbox — use
+`tether ls` explicitly to see the whole fleet.
 
 ## Send a message
 
