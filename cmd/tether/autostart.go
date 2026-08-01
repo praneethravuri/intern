@@ -20,9 +20,9 @@ const (
 // Overridden in tests, which must never exec a real subprocess.
 var spawnDaemon = autoStartDaemon
 
-// autoStartDaemon re-execs this same binary with no arguments, detached from
-// the calling shell, so it keeps running after the short-lived CLI process
-// that spawned it exits.
+// autoStartDaemon re-execs this same binary with the "start" subcommand,
+// detached from the calling shell, so it keeps running after the
+// short-lived CLI process that spawned it exits.
 func autoStartDaemon(sock string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -48,7 +48,7 @@ func autoStartDaemon(sock string) error {
 	}
 	defer func() { _ = devnull.Close() }()
 
-	cmd := exec.Command(exe)
+	cmd := exec.Command(exe, "start")
 	cmd.Stdin = devnull
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile

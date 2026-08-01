@@ -109,13 +109,13 @@ func dial(sock string, autoStart bool) (net.Conn, error) {
 	}
 	if !autoStart {
 		return nil, failf(exitNoDaemon,
-			"no daemon running (tried socket %s) — start it with `tether`", sock)
+			"no daemon running (tried socket %s) — start it with `tether start`", sock)
 	}
 
 	if startErr := spawnDaemon(sock); startErr != nil {
 		return nil, failf(exitNoDaemon,
 			"no daemon running (tried socket %s) and could not start one automatically: %v "+
-				"— start it manually with `tether`", sock, startErr)
+				"— start it manually with `tether start`", sock, startErr)
 	}
 
 	conn, err = net.DialTimeout("unix", sock, dialTimeout)

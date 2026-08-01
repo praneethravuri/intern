@@ -99,7 +99,7 @@ tether wait --timeout 5m     # blocks until mail arrives; exits 4 on timeout
 ```sh
 # Codex, working on the backend
 tether register backend
-tether ls                    # bare `tether` starts the daemon instead — use `ls` for the fleet
+tether ls                    # bare `tether` only glances at your own inbox — use `ls` for the fleet
 tether send frontend "the /orders response now returns a cursor, not an offset"
 ```
 
@@ -113,7 +113,8 @@ Both agents resolved the same workspace — the basename of the git root — so 
 
 | Command | What it does |
 | --- | --- |
-| `tether` | Starts the daemon in the foreground: blocks, logs to the terminal, stops on Ctrl-C. |
+| `tether` | Shows a quick glance at your own inbox: how many messages are pending. Auto-starts the daemon and registers implicitly, like every other command, once the workspace has somebody in it. |
+| `tether start` | Starts the daemon in the foreground: blocks, logs to the terminal, stops on Ctrl-C. |
 | `tether register <name>` | Claims a name in this workspace so others can address you. Re-running it from the same session renames in place. |
 | `tether send <to> [body]` | Sends a message. `<to>` is `name`, `name@workspace`, or `*`/`all` to broadcast to everyone else in the workspace. |
 | `tether inbox` | Shows messages waiting for you and acknowledges them in the same call (draining). |

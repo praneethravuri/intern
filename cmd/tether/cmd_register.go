@@ -108,9 +108,12 @@ func runRegister(cmd *cobra.Command, args []string, opts *registerOptions) error
 	if _, err := fmt.Fprintf(out, "%s %s\n", verb, addr); err != nil {
 		return err
 	}
-	return keyValues(out, [][2]string{
+	if err := keyValues(out, [][2]string{
 		{"harness", dash(res.Harness)},
-	})
+	}); err != nil {
+		return err
+	}
+	return next(out, "tether ls")
 }
 
 // registerError turns a 409 (name held by a live agent) into an actionable

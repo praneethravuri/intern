@@ -106,6 +106,39 @@ func TestRegisterRefreshWording(t *testing.T) {
 	requireNotContains(t, r.stdout, "registered frontend", "stdout")
 }
 
+// TestRegisterRefreshExitsZero is AXI principle 6: re-registering a name
+// this same session already holds is a refresh, not a failure -- retrying
+// an already-succeeded registration must exit 0 like the first call did.
+func TestRegisterRefreshExitsZero(t *testing.T) {
+	setIdentity(t, "", "storefront")
+	clearHarnessEnv(t)
+
+	newFakeDaemon(t, okHandler(protocol.RegisterResult{
+		Address: "frontend@storefront", Harness: "unknown", Created: false,
+	}))
+
+	r := run(t, newRegisterCmd(), "", "--as", "frontend")
+	if r.err != nil {
+		t.Fatalf("re-registering the same name failed: %v", r.err)
+	}
+	if got := r.exitCode(); got != exitOK {
+		t.Fatalf("exit code = %d, want %d", got, exitOK)
+	}
+}
+
+// TestRegisterSuggestsLs is AXI principle 10: the first thing a fresh agent
+// runs is register, so its success output should point at the natural next
+// step -- seeing who else is here.
+func TestRegisterSuggestsLs(t *testing.T) {
+	setIdentity(t, "", "storefront")
+	clearHarnessEnv(t)
+
+	newFakeDaemon(t, okHandler(protocol.RegisterResult{Address: "frontend@storefront", Created: true}))
+
+	r := mustRun(t, newRegisterCmd(), "", "--as", "frontend")
+	requireContains(t, r.stdout, "Next: tether ls", "stdout")
+}
+
 func TestRegisterJSON(t *testing.T) {
 	setIdentity(t, "", "storefront")
 	clearHarnessEnv(t)

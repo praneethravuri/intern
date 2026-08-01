@@ -116,6 +116,48 @@ func TestInboxPeekDoesNotClear(t *testing.T) {
 	requireNotContains(t, r.stdout, "inbox cleared", "stdout")
 }
 
+// TestInboxPeekReportsTheRealTotalWhenLimitCutTheListShort is AXI principle
+// 1: a peek never changes anything, so Pending is the true total that
+// exists -- when --limit shows fewer than that, the output must say so
+// rather than let "1 message" pass for the whole inbox.
+func TestInboxPeekReportsTheRealTotalWhenLimitCutTheListShort(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(protocol.InboxResult{Messages: []protocol.MessageView{{
+		ID: "01K", From: "codex@storefront", Kind: kindNote, Body: "hi", CreatedAt: ago(time.Second),
+	}}, Pending: 5}))
+
+	r := mustRun(t, newInboxCmd(), "", "--peek", "--limit", "1")
+	requireContains(t, r.stdout, "1 of 5 messages pending (peek — not cleared).", "stdout")
+}
+
+// TestInboxPeekOmitsTheTotalWhenNothingWasCutShort keeps the ordinary case
+// unchanged: when everything pending fit in the list, naming a redundant
+// total would just be noise.
+func TestInboxPeekOmitsTheTotalWhenNothingWasCutShort(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(protocol.InboxResult{Messages: []protocol.MessageView{{
+		ID: "01K", From: "codex@storefront", Kind: kindNote, Body: "hi", CreatedAt: ago(time.Second),
+	}}, Pending: 1}))
+
+	r := mustRun(t, newInboxCmd(), "", "--peek")
+	requireContains(t, r.stdout, "1 message (peek — not cleared).", "stdout")
+	requireNotContains(t, r.stdout, " of ", "stdout")
+}
+
+// TestInboxDrainNotesMailLeftBehindByLimit is the same principle for a real
+// drain: a nonzero Pending after --limit cut the drain short means the
+// inbox is not actually empty, so "cleared" alone would be a misleadingly
+// partial claim -- the daemon-honest total has to say so.
+func TestInboxDrainNotesMailLeftBehindByLimit(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(protocol.InboxResult{Messages: []protocol.MessageView{{
+		ID: "01K", From: "codex@storefront", Kind: kindNote, Body: "hi", CreatedAt: ago(time.Second),
+	}}, Cleared: 1, Pending: 4}))
+
+	r := mustRun(t, newInboxCmd(), "", "--limit", "1")
+	requireContains(t, r.stdout, "1 message, inbox cleared — 4 messages still pending, run `tether inbox` again.", "stdout")
+}
+
 func TestInboxReplay(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	d := newFakeDaemon(t, okHandler(protocol.InboxResult{}))

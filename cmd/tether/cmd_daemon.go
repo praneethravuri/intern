@@ -11,6 +11,28 @@ import (
 	"github.com/praneethravuri/tether/internal/protocol"
 )
 
+const startLong = `Run the daemon in the foreground: blocks, logs to the terminal, stops on
+Ctrl-C.
+
+This is what every other command runs automatically, detached, the first
+time it needs a daemon and none is reachable. Run it directly to watch the
+daemon's own log output, or to control its lifetime yourself.`
+
+// newStartCmd runs the daemon in the foreground -- what bare `tether` did
+// before it was repurposed for an inbox glance (see runRoot).
+func newStartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Run the daemon in the foreground",
+		Long:  startLong,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runDaemon(cmd)
+		},
+	}
+	return quiet(cmd)
+}
+
 // daemonBanner is the text printed once before the daemon blocks, kept as a
 // pure function so its wording is testable without starting a real daemon.
 func daemonBanner(sock, db string) string {
@@ -21,7 +43,7 @@ func daemonBanner(sock, db string) string {
 		sock, db)
 }
 
-// runDaemon is root's RunE when tether is invoked with no subcommand.
+// runDaemon is `tether start`'s RunE.
 func runDaemon(cmd *cobra.Command) error {
 	sock, err := protocol.SocketPath()
 	if err != nil {

@@ -142,7 +142,10 @@ Typical session:
 Message bodies should be passed with --body-file (use "-" for stdin) whenever
 they contain quotes, backticks, newlines or $ so the shell cannot mangle them.
 
-Running tether with no arguments starts the daemon in the foreground.
+Running tether with no arguments shows a quick glance at your own mail: how
+many messages are pending, addressed as name@workspace. Run "tether start"
+to run the daemon itself in the foreground -- this is what happens
+automatically, detached, the first time any command needs one.
 
 Exit codes:
   0  success
@@ -151,8 +154,8 @@ Exit codes:
   4  wait timed out
   5  conflict (for example, the name is already taken)`
 
-// newRootCmd's bare form runs the daemon in the foreground; NoArgs makes a
-// typo'd subcommand fail loudly instead of silently starting one.
+// newRootCmd's bare form shows a live inbox glance (see runRoot); NoArgs
+// makes a typo'd subcommand fail loudly instead of being silently ignored.
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "tether",
@@ -162,12 +165,14 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDaemon(cmd)
+			return runRoot(cmd)
 		},
 	}
+	root.SetFlagErrorFunc(flagErrorFunc)
 
 	root.AddCommand(
 		newVersionCmd(),
+		newStartCmd(),
 		newRegisterCmd(),
 		newSendCmd(),
 		newInboxCmd(),
@@ -181,7 +186,7 @@ func newRootCmd() *cobra.Command {
 }
 
 func newVersionCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
@@ -190,4 +195,5 @@ func newVersionCmd() *cobra.Command {
 			return err
 		},
 	}
+	return quiet(cmd)
 }
