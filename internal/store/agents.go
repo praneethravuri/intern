@@ -225,6 +225,73 @@ func (s *Store) Rename(ctx context.Context, a Agent, staleCutoff time.Time) (old
 	return oldName, nil
 }
 
+// ReclaimRename moves a.SessionID onto a.Name only when target still has the
+// exact identity observed by the caller. It is the compare-and-swap form of a
+// dead-holder rename: a false result leaves both rows and all mail untouched.
+func (s *Store) ReclaimRename(ctx context.Context, a, target Agent) (oldName string, reclaimed bool, err error) {
+	if err := normalize(&a); err != nil {
+		return "", false, err
+	}
+	if a.SessionID == "" {
+		return "", false, fmt.Errorf("%w: rename needs a session id", ErrBadAddress)
+	}
+	if target.Workspace != a.Workspace || target.Name != a.Name {
+		return "", false, fmt.Errorf("%w: reclaim target does not match rename target", ErrBadAddress)
+	}
+
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("store: reclaim rename: %w", err)
+	}
+	defer s.rollback(tx)
+
+	if err := tx.QueryRowContext(ctx, qFindNameBySession, a.Workspace, a.SessionID).Scan(&oldName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, fmt.Errorf("%w: no agent in %s for this session", ErrNoSuchAgent, a.Workspace)
+		}
+		return "", false, fmt.Errorf("store: reclaim rename: find: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, qDeleteAgentIfIdentity,
+		a.Workspace, a.Name, target.SessionID, target.PID, target.PIDStart)
+	if err != nil {
+		return "", false, fmt.Errorf("store: reclaim rename: evict target: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return "", false, fmt.Errorf("store: reclaim rename: evict target: %w", err)
+	}
+	if n == 0 {
+		return "", false, nil
+	}
+
+	nowMS := s.nowMS()
+	res, err = tx.ExecContext(ctx, qRenameAgent,
+		a.Name, a.Harness, a.Cwd, a.PID, a.PIDStart, nowMS,
+		a.Workspace, a.SessionID,
+		a.Workspace, a.Name, a.SessionID)
+	if err != nil {
+		return "", false, fmt.Errorf("store: reclaim rename: update agent: %w", err)
+	}
+	n, err = res.RowsAffected()
+	if err != nil {
+		return "", false, fmt.Errorf("store: reclaim rename: update agent: %w", err)
+	}
+	if n == 0 {
+		return "", false, nil
+	}
+
+	if oldName != a.Name {
+		if _, err := tx.ExecContext(ctx, qRenameMessages, a.Name, a.Workspace, oldName); err != nil {
+			return "", false, fmt.Errorf("store: reclaim rename: update messages: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, fmt.Errorf("store: reclaim rename: commit: %w", err)
+	}
+	return oldName, true, nil
+}
+
 // ListAgents returns agents ordered by workspace then name. An empty ws means
 // every workspace; a staleAfter of zero or less disables the staleness filter.
 func (s *Store) ListAgents(ctx context.Context, ws string, staleAfter time.Duration) ([]Agent, error) {

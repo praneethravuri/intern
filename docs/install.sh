@@ -4,7 +4,7 @@
 #   curl -fsSL https://praneethravuri.github.io/intern/install.sh | sh
 #
 # Env overrides:
-#   INTERN_VERSION      version tag to install, e.g. v0.3.1 (default: latest)
+#   INTERN_VERSION      version tag to install, e.g. v0.3.2 (default: latest)
 #   INTERN_INSTALL_DIR  where to put the binaries (default: ~/.local/bin)
 #   INTERN_BASE_URL     override the GitHub releases base URL (testing only)
 set -e

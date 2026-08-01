@@ -283,6 +283,82 @@ func TestRetainedCommandsEmitJSONAndWireRequests(t *testing.T) {
 	}
 }
 
+func TestFleetCommandsAllIgnoreWorkspace(t *testing.T) {
+	tests := []struct {
+		name      string
+		build     func() *cobra.Command
+		method    string
+		response  any
+		workspace func(t *testing.T, request recorded) string
+	}{
+		{
+			name:     "ls",
+			build:    newLsCmd,
+			method:   protocol.MethodLs,
+			response: protocol.LsResult{},
+			workspace: func(t *testing.T, request recorded) string {
+				return decodeParams[protocol.LsParams](t, request).Workspace
+			},
+		},
+		{
+			name:     "claims",
+			build:    newClaimsCmd,
+			method:   protocol.MethodClaims,
+			response: protocol.ClaimsResult{},
+			workspace: func(t *testing.T, request recorded) string {
+				return decodeParams[protocol.ClaimsParams](t, request).Workspace
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newFakeDaemon(t, resultHandler(map[string]any{tc.method: tc.response}))
+			mustRun(t, tc.build(), "", "--all", "--workspace", "one-workspace")
+			if got := tc.workspace(t, d.only(t, tc.method)); got != "" {
+				t.Fatalf("workspace with --all = %q, want every workspace", got)
+			}
+		})
+	}
+}
+
+func TestWaitRoundsPositiveDurationUpToOneMillisecond(t *testing.T) {
+	setIdentity(t, "sender", "contract-workspace")
+	d := newFakeDaemon(t, resultHandler(map[string]any{
+		protocol.MethodRegister: protocol.RegisterResult{Name: "sender"},
+		protocol.MethodWait:     protocol.WaitResult{TimedOut: true},
+	}))
+
+	r := run(t, newWaitCmd(), "", "--timeout", "1ns")
+	if got := r.exitCode(); got != exitTimeout {
+		t.Fatalf("wait exit code = %d, want %d", got, exitTimeout)
+	}
+	params := decodeParams[protocol.WaitParams](t, d.registerThen(t, protocol.MethodWait))
+	if params.TimeoutMS != 1 {
+		t.Fatalf("wait timeout_ms = %d, want 1", params.TimeoutMS)
+	}
+}
+
+func TestDoctorReportsNoDaemonWhenSocketCannotResolve(t *testing.T) {
+	t.Setenv("INTERN_SOCK", "")
+	t.Setenv("INTERN_DB", "")
+	t.Setenv("INTERN_WORKSPACE", "doctor-workspace")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("HOME", "")
+
+	r := run(t, newDoctorCmd(), "")
+	if got := r.exitCode(); got != exitNoDaemon {
+		t.Fatalf("doctor exit code = %d, want %d", got, exitNoDaemon)
+	}
+
+	var report doctorReport
+	unmarshalJSON(t, r.stdout, &report)
+	if report.DaemonRunning {
+		t.Fatalf("doctor report = %+v, want daemon_running false", report)
+	}
+	requireContains(t, report.Error, "cannot work out where the intern socket lives", "doctor error")
+}
+
 func resultHandler(results map[string]any) handlerFunc {
 	return func(request protocol.Request) protocol.Response {
 		result, ok := results[request.Method]
@@ -305,6 +381,78 @@ func TestShellAgentsStaySeparate(t *testing.T) {
 	unmarshalJSON(t, run("", "ls", "--workspace", workspace), &listed)
 	if len(listed.Agents) != 2 || listed.Agents[0].Name != "recipient" || listed.Agents[1].Name != "sender" {
 		t.Fatalf("registered agents = %+v, want sender and recipient", listed.Agents)
+	}
+}
+
+func TestShellHandoffIdentity(t *testing.T) {
+	run := startTestIntern(t)
+	workspace := "plain-shell-handoff"
+
+	run("", "register", "sender", "--workspace", workspace)
+	run("", "register", "recipient", "--workspace", workspace)
+
+	var sent protocol.SendResult
+	unmarshalJSON(t, run("", "send", "recipient", "--as", "sender", "--workspace", workspace,
+		"--kind", "handoff", "handoff body"), &sent)
+	if sent.MessageID == "" {
+		t.Fatalf("send result has no message id: %+v", sent)
+	}
+
+	var waited protocol.WaitResult
+	unmarshalJSON(t, run("", "wait", "--as", "recipient", "--workspace", workspace,
+		"--timeout", "3s"), &waited)
+	if waited.Pending != 1 || waited.TimedOut {
+		t.Fatalf("wait result = %+v, want one pending handoff", waited)
+	}
+
+	var inbox protocol.InboxResult
+	unmarshalJSON(t, run("", "inbox", "--as", "recipient", "--workspace", workspace), &inbox)
+	if len(inbox.Messages) != 1 || inbox.Messages[0].ID != sent.MessageID || inbox.Messages[0].Body != "handoff body" {
+		t.Fatalf("inbox result = %+v", inbox)
+	}
+}
+
+// TestShellImplicitHandoff keeps the unnamed plain-shell session stable across
+// implicit registration and its real send, wait, and inbox requests.
+func TestShellImplicitHandoff(t *testing.T) {
+	run := startTestIntern(t)
+	workspace := "implicit-shell-handoff"
+
+	run("", "register", "recipient", "--workspace", workspace)
+
+	var sent protocol.SendResult
+	unmarshalJSON(t, run("", "send", "recipient", "--workspace", workspace,
+		"--kind", "handoff", "first handoff"), &sent)
+	if sent.MessageID == "" {
+		t.Fatalf("send result has no message id: %+v", sent)
+	}
+
+	var listed protocol.LsResult
+	unmarshalJSON(t, run("", "ls", "--workspace", workspace), &listed)
+	var sender string
+	for _, agent := range listed.Agents {
+		if agent.Name != "recipient" {
+			sender = agent.Name
+			break
+		}
+	}
+	if sender == "" {
+		t.Fatalf("implicit sender missing from agents: %+v", listed.Agents)
+	}
+
+	run("", "send", sender, "--as", "recipient", "--workspace", workspace,
+		"--kind", "answer", "reply handoff")
+
+	var waited protocol.WaitResult
+	unmarshalJSON(t, run("", "wait", "--workspace", workspace, "--timeout", "3s"), &waited)
+	if waited.Pending != 1 || waited.TimedOut {
+		t.Fatalf("wait result = %+v, want one pending reply", waited)
+	}
+
+	var inbox protocol.InboxResult
+	unmarshalJSON(t, run("", "inbox", "--workspace", workspace), &inbox)
+	if len(inbox.Messages) != 1 || inbox.Messages[0].Body != "reply handoff" {
+		t.Fatalf("inbox result = %+v", inbox)
 	}
 }
 

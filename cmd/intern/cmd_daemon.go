@@ -14,9 +14,9 @@ import (
 const startLong = `Run the daemon in the foreground: blocks, logs to the terminal, stops on
 Ctrl-C.
 
-This is what every other command runs automatically, detached, the first
-time it needs a daemon and none is reachable. Run it directly to watch the
-daemon's own log output, or to control its lifetime yourself.`
+Daemon-facing commands other than ` + "`intern doctor`" + ` run this automatically,
+detached, when they need a daemon and none is reachable. Run it directly to
+watch the daemon's own log output, or to control its lifetime yourself.`
 
 // newStartCmd runs the daemon in the foreground.
 func newStartCmd() *cobra.Command {

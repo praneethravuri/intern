@@ -1,44 +1,38 @@
-# Releasing v0.3.1
+# Releasing intern
 
-This project publishes releases manually from a merged, green `main` branch.
-Do not move the published `v0.3.0` tag. The v0.3.1 tag must be annotated and
-must point at the merged `main` commit.
+Intern releases are prepared manually from a green, merged `main` branch. The
+annotated release tag is the version source: GoReleaser injects it into the
+binary, so there is no source-file version to edit. Never move an existing
+release tag.
 
-## 1. Prepare the release branch and pull request
+Set the version once for the whole procedure. For the next release, use
+`v0.3.2`:
 
-Start from an up-to-date `main` with no unrelated changes:
+```sh
+VERSION=v0.3.2
+RELEASE_BRANCH="codex/release-${VERSION#v}"
+test -z "$(git tag -l "$VERSION")"
+```
+
+## 1. Prepare and verify a release branch
+
+Start from up-to-date `main` with no unrelated changes:
 
 ```sh
 git fetch origin --tags
 git switch main
 git pull --ff-only origin main
-git switch -c codex/v0.3.1-release-hardening
+git switch -c "$RELEASE_BRANCH"
 ```
 
-Make the release-hardening changes, including this documentation. Maintain the
-root `TODO.md` as a local working checklist, but leave it unstaged and do not
-commit it. Before every commit, activate Ponytail Ultra and run the Ponytail
-review on the staged diff. Apply valid simplifications, re-run the relevant
-verification, then commit with the configured human author only. Do not add
-co-author or AI-tool trailers.
+Update `CHANGELOG.md`, release-version examples, and this procedure when the
+release changes them. Keep any root `TODO.md` as a local working checklist;
+do not stage or commit it. Before each commit, use the available code-review
+workflow, apply valid simplifications, then rerun the checks affected by the
+change. Commits use the configured human author only and contain no AI or
+co-author trailers.
 
-In an agent host that provides the Ponytail commands, the required pre-commit
-review is:
-
-```text
-/ponytail ultra
-/ponytail-review
-```
-
-Push the branch and open a pull request into `main`:
-
-```sh
-git push -u origin codex/v0.3.1-release-hardening
-gh pr create --base main --head codex/v0.3.1-release-hardening \
-  --title "release: v0.3.1 hardening" --fill
-```
-
-Run and record every pre-PR release check before requesting review:
+Run every local release gate before opening the pull request:
 
 ```sh
 go mod tidy -diff
@@ -52,89 +46,78 @@ goreleaser check
 goreleaser release --snapshot --clean
 ```
 
-Confirm the snapshot installer E2E succeeds. It must serve the snapshot's
-four archives and `checksums.txt` over trusted HTTPS, run `docs/install.sh`
-with `INTERN_BASE_URL` and a temporary `INTERN_INSTALL_DIR`, then run the
-installed binary's `version` command.
+Also run the snapshot installer E2E. Serve its four archives and
+`checksums.txt` over trusted HTTPS, use `INTERN_BASE_URL` and a temporary
+`INTERN_INSTALL_DIR` with `docs/install.sh`, then run the installed binary’s
+`version` command. The `install-e2e` job in [Go CI](../.github/workflows/go.yml)
+is the canonical, executable form of that check.
 
-Wait for all pull-request checks to pass, then merge the PR with the normal
-GitHub review process.
+Push the branch, open a pull request into `main`, and wait for every required
+Go CI and Security check to pass:
+
+```sh
+git push -u origin "$RELEASE_BRANCH"
+gh pr create --base main --head "$RELEASE_BRANCH" --title "release: $VERSION" --fill
+gh pr checks --watch
+```
 
 ## 2. Verify merged main
 
-Fetch the merge and verify that the release branch's tip is in `main`:
+After the pull request is merged, verify the exact merge commit again:
 
 ```sh
 git fetch origin --tags
 git switch main
 git pull --ff-only origin main
-git merge-base --is-ancestor codex/v0.3.1-release-hardening origin/main
+git merge-base --is-ancestor "$RELEASE_BRANCH" origin/main
 ```
 
-Run the same release verification again on the merged commit:
+Re-run the local release gates above, including the GoReleaser snapshot and
+installer E2E. Confirm Go CI and Security are green for that exact commit:
 
 ```sh
-go mod tidy -diff
-go build ./...
-go vet ./...
-test -z "$(gofmt -s -l .)"
-go test -race -count=1 ./...
-golangci-lint run
-shellcheck docs/install.sh
-goreleaser check
-goreleaser release --snapshot --clean
-```
-
-Confirm the Go CI and Security workflow runs for the merged commit are green
-before tagging. With GitHub CLI, list the runs for that exact commit and watch
-each incomplete run:
-
-```sh
-gh run list --commit "$(git rev-parse HEAD)" --workflow "Go CI"
-gh run list --commit "$(git rev-parse HEAD)" --workflow "Security"
+COMMIT=$(git rev-parse HEAD)
+gh run list --commit "$COMMIT" --workflow "Go CI"
+gh run list --commit "$COMMIT" --workflow "Security"
 gh run watch <run-id> --exit-status
 ```
 
 ## 3. Tag and publish
 
-Create and push the annotated tag from the verified `main` commit:
+Create and push an annotated tag from the verified merge commit:
 
 ```sh
-git tag -a v0.3.1 -m "Release v0.3.1"
-git push origin v0.3.1
+git tag -a "$VERSION" -m "Release $VERSION"
+git push origin "$VERSION"
+test "$(git cat-file -t "$VERSION")" = tag
+test "$(git rev-list -n 1 "$VERSION")" = "$(git rev-parse origin/main)"
 ```
 
-Confirm it is an annotated tag at the merged commit:
-
-```sh
-test "$(git cat-file -t v0.3.1)" = tag
-test "$(git rev-list -n 1 v0.3.1)" = "$(git rev-parse origin/main)"
-git show --no-patch --format=fuller v0.3.1
-```
-
-Publish the GitHub release with GoReleaser v2.17.0, matching CI.
-`GITHUB_TOKEN` must be able to create releases in `praneethravuri/intern`:
+Publish the GitHub release with the pinned GoReleaser version from the
+repository. `GITHUB_TOKEN` must be allowed to create releases in this
+repository:
 
 ```sh
 GITHUB_TOKEN="$(gh auth token)" goreleaser release --clean
 ```
 
-GoReleaser creates four archives—Linux and macOS for `amd64` and `arm64`—and
-one `checksums.txt` file. It does not require signing or SBOM tooling for this
-manual release flow.
+This creates four archives—Linux and macOS for `amd64` and `arm64`—and
+`checksums.txt`. The manual flow intentionally has no signing or SBOM tool
+dependency; checksums protect transfer integrity, not an independently signed
+provenance claim.
 
-## 4. Verify published artifacts and installer
+## 4. Verify public artifacts and installer
 
-Download the release into a disposable directory, validate every checksum,
-then exercise the installer against the public release:
+Download the published assets to a disposable directory, validate every
+checksum, then install the tagged release:
 
 ```sh
-release_dir="$(mktemp -d)"
-gh release download v0.3.1 --repo praneethravuri/intern \
-  --pattern 'intern_*.tar.gz' --pattern checksums.txt --dir "$release_dir"
+RELEASE_DIR=$(mktemp -d)
+gh release download "$VERSION" --repo praneethravuri/intern \
+  --pattern 'intern_*.tar.gz' --pattern checksums.txt --dir "$RELEASE_DIR"
 
 (
-  cd "$release_dir"
+  cd "$RELEASE_DIR"
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum -c checksums.txt
   else
@@ -142,40 +125,23 @@ gh release download v0.3.1 --repo praneethravuri/intern \
   fi
 )
 
-install_dir="$release_dir/install"
-INTERN_VERSION=v0.3.1 INTERN_INSTALL_DIR="$install_dir" sh docs/install.sh
-test "$("$install_dir/intern" version)" = v0.3.1
+INSTALL_DIR="$RELEASE_DIR/install"
+INTERN_VERSION="$VERSION" INTERN_INSTALL_DIR="$INSTALL_DIR" sh docs/install.sh
+test "$("$INSTALL_DIR/intern" version)" = "$VERSION"
 ```
 
-The checksum command must report all four archives as valid, and the installed
-binary must print exactly `v0.3.1`.
+All four checksums must validate and the installed binary must print exactly
+the tag value.
 
-## 5. Clean up merged branches
+## 5. Clean up the merged release branch
 
-Keep `main` and `origin/main`. After the tag and release verification succeed,
-delete only the merged hardening branch and the already-merged local
-`v0.3.0-simplify` branch:
+Keep `main` and `origin/main`. Delete only the merged release branch after
+the tag and public-artifact verification succeed:
 
 ```sh
-if git ls-remote --exit-code --heads origin codex/v0.3.1-release-hardening >/dev/null; then
-  git push origin --delete codex/v0.3.1-release-hardening
+if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" >/dev/null; then
+  git push origin --delete "$RELEASE_BRANCH"
 fi
-git branch -d codex/v0.3.1-release-hardening
-git branch -d v0.3.0-simplify
+git branch -d "$RELEASE_BRANCH"
 git switch main
-```
-
-If GitHub auto-deleted the remote pull-request branch, the conditional skips
-the deletion. Confirm it is gone:
-
-```sh
-git ls-remote --exit-code --heads origin codex/v0.3.1-release-hardening
-```
-
-That command must return no branch. Finish by confirming the release tag still
-points at `origin/main`:
-
-```sh
-git fetch origin --tags
-test "$(git rev-list -n 1 v0.3.1)" = "$(git rev-parse origin/main)"
 ```

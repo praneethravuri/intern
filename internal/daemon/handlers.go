@@ -214,13 +214,9 @@ func (s *Server) registerOrReclaim(ctx context.Context, a store.Agent) (created 
 	return false, nil // reclaiming an existing row, not creating one
 }
 
-// renameOrReclaim is Rename with the same dead-holder escape hatch
-// registerOrReclaim has: a target name held by a session whose pid is
-// provably dead is renamable into immediately, not permanently blocked
-// until DeadAfter sweeps the row. Unlike registerOrReclaim's CAS, the forced
-// retry here is a blind overwrite -- narrower TOCTOU window than defect C5
-// (rename conflicts are rarer than fresh registers), accepted rather than
-// closed with the same compare-and-swap.
+// renameOrReclaim is Rename with the same dead-holder escape hatch as
+// registerOrReclaim. The second step is a compare-and-swap against the exact
+// dead identity observed, so an intervening live claimant is never evicted.
 func (s *Server) renameOrReclaim(ctx context.Context, a store.Agent) error {
 	staleCutoff := time.Now().Add(-s.cfg.StaleAfter)
 	_, err := s.store.Rename(ctx, a, staleCutoff)
@@ -236,9 +232,14 @@ func (s *Server) renameOrReclaim(ctx context.Context, a store.Agent) error {
 		return err // still alive: a genuine conflict
 	}
 
-	forceCutoff := time.Now().Add(time.Millisecond) // incumbent is provably dead
-	_, err = s.store.Rename(ctx, a, forceCutoff)
-	return err
+	_, reclaimed, reclaimErr := s.store.ReclaimRename(ctx, a, incumbent)
+	if reclaimErr != nil {
+		return reclaimErr
+	}
+	if !reclaimed {
+		return err
+	}
+	return nil
 }
 
 // authenticate checks that session matches ws/name's stored session exactly

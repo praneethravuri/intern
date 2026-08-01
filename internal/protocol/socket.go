@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -64,17 +65,24 @@ func LogPath() (string, error) {
 	return filepath.Join(dir, "daemon.log"), nil
 }
 
-// Listen creates the private 0700 directory that holds the socket, removes
-// any stale socket file, and binds inside it (see bindSocket for the
-// platform-specific file permissions).
+// Listen creates and verifies a socket directory that group and other users
+// cannot write to, removes a stale socket file, and binds inside it (see
+// bindSocket for the platform-specific file permissions). The directory
+// boundary keeps another user from replacing the socket between stale-path
+// inspection and removal.
 func Listen(path string) (net.Listener, error) {
 	dir := filepath.Dir(path)
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir: %w", err)
 	}
+	if err := requireSafeSocketDir(dir); err != nil {
+		return nil, err
+	}
 
-	_ = os.Remove(path)
+	if err := removeStaleSocket(path); err != nil {
+		return nil, err
+	}
 
 	listener, err := bindSocket(path)
 	if err != nil {
@@ -82,4 +90,35 @@ func Listen(path string) (net.Listener, error) {
 	}
 
 	return listener, nil
+}
+
+func requireSafeSocketDir(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("stat socket directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("socket directory %s is not a directory", dir)
+	}
+	if mode := info.Mode().Perm(); mode&0o022 != 0 {
+		return fmt.Errorf("socket directory %s must not be writable by group or others, got %04o", dir, mode)
+	}
+	return nil
+}
+
+func removeStaleSocket(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat socket path: %w", err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("socket path %s exists but is not a Unix socket", path)
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove stale socket: %w", err)
+	}
+	return nil
 }

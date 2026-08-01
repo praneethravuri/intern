@@ -77,8 +77,10 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 		Warnings: []string{},
 	}
 
+	socketResolved := false
 	if sock, err := protocol.SocketPath(); err == nil {
 		report.Socket = sock
+		socketResolved = true
 	} else {
 		report.Socket = "unknown"
 		report.Error = fmt.Sprintf("cannot work out where the intern socket lives: %v", err)
@@ -111,6 +113,9 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 	}
 	if logPath, err := protocol.LogPath(); err == nil {
 		report.DaemonLogPath = logPath
+	}
+	if !socketResolved {
+		return report
 	}
 
 	var who protocol.LsResult

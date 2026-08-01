@@ -64,13 +64,6 @@ func resolveSelf(nameFlag, workspaceFlag string) (name, workspace string, err er
 	return name, workspace, nil
 }
 
-// currentSession returns the harness and session id for this invocation.
-// Every command authenticating as itself must call this rather than
-// recompute the session id, or the daemon sees a false mismatch.
-func currentSession() (harness, session string) {
-	return currentSessionForAgent("")
-}
-
 // currentSessionForAgent derives a stable identity for name when a harness
 // does not provide one. A plain shell can host several named agents, while a
 // real harness session keeps its existing rename semantics.

@@ -8,8 +8,8 @@ import (
 
 const lsLong = `List the agents registered with the daemon, and what each one is doing.
 
-Only this workspace is shown unless --all is given. NAME is the full address:
-copy it straight into ` + "`intern send`" + `.
+Only this workspace is shown unless --all is given; --all ignores
+--workspace. NAME is the full address: copy it straight into ` + "`intern send`" + `.
 
 STATE is computed fresh on every call and includes the evidence behind each
 agent's state.
@@ -37,7 +37,7 @@ func newLsCmd() *cobra.Command {
 	}
 
 	opts.addWorkspace(cmd)
-	cmd.Flags().BoolVar(&opts.all, "all", false, "list agents in every workspace, not just this one")
+	cmd.Flags().BoolVar(&opts.all, "all", false, "list agents in every workspace (ignores --workspace)")
 
 	return quiet(cmd)
 }
@@ -65,7 +65,7 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 // otherwise the usual flag/cwd resolution.
 func fleetWorkspace(workspaceFlag string, all bool) (string, error) {
 	if all {
-		return workspaceFlag, nil
+		return "", nil
 	}
 	return resolveWorkspace(workspaceFlag)
 }

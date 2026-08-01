@@ -102,11 +102,10 @@ func runSend(cmd *cobra.Command, args []string, opts *sendOptions) error {
 		return err
 	}
 
-	fromName, err = ensureRegistered(fromName, workspace)
+	fromName, session, err := ensureRegistered(fromName, workspace)
 	if err != nil {
 		return err
 	}
-	_, session := currentSession()
 
 	params := protocol.SendParams{
 		FromName:      fromName,

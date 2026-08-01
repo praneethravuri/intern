@@ -43,7 +43,7 @@ func Run() error {
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o700); err != nil {
 		return err
 	}
-	release, err := acquireLock(sockPath + ".lock")
+	release, err := acquireLock(sockPath)
 	if err != nil {
 		return err
 	}

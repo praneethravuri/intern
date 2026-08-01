@@ -126,32 +126,33 @@ func main() {
 
 const rootLong = `intern is a local message bus for coding agents.
 
-Agents register a name inside a workspace (the basename of the git root, or
-$INTERN_WORKSPACE) and address each other as name@workspace. A bare name is
-resolved against the current workspace.
+Agents register a name inside a workspace derived from the shared Git root
+(or the current directory outside Git), unless $INTERN_WORKSPACE overrides it.
+They address each other as name@workspace. A bare name uses the current
+workspace.
 
 Typical session:
 
-  intern register --as frontend     # claim a name in this workspace
+  intern register frontend          # claim a name in this workspace
   intern ls                         # see who else is here
-  intern send backend "..."         # send a message
-  intern wait --timeout 60s         # block until mail arrives
-  intern inbox                      # read it -- this also clears it
-  intern inbox --peek               # look without clearing
+  intern send backend --as frontend "..." # send a message
+  intern wait --as frontend --timeout 60s  # block until mail arrives
+  intern inbox --as frontend                # read it -- this also clears it
+  intern inbox --as frontend --peek         # look without clearing
 
 Message bodies should be passed with --body-file (use "-" for stdin) whenever
 they contain quotes, backticks, newlines or $ so the shell cannot mangle them.
 
 Output is JSON by default. Running intern with no arguments lists the agents
 in the current workspace. Run "intern start" to run the daemon itself in the
-foreground -- this is what happens automatically, detached, the first time
-any command needs one.
+foreground -- daemon-facing commands start it automatically when needed;
+` + "`intern doctor`" + ` only reports its status and never starts one.
 
 Exit codes:
   0  success
   1  general error
   3  no daemon running
-  4  wait timed out
+  4  wait timed out, or send found no recipient
   5  conflict (for example, the name is already taken)`
 
 // newRootCmd's bare form lists the current workspace (see runRoot); NoArgs

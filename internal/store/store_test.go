@@ -426,6 +426,64 @@ func TestRenameOntoADeadNameReclaimsWithAPastCutoff(t *testing.T) {
 	}
 }
 
+func TestReclaimRenameLeavesChangedTargetUntouched(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a", PID: 111, PIDStart: 222})
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-2", Cwd: "/b", PID: 333, PIDStart: 444})
+
+	observed, err := s.GetAgent(ctx, "ws", "backend")
+	if err != nil {
+		t.Fatalf("GetAgent(target): %v", err)
+	}
+	if ok, err := s.ReclaimAgent(ctx,
+		Agent{Workspace: "ws", Name: "backend", SessionID: "sess-3", Cwd: "/c", PID: 555, PIDStart: 666},
+		observed.PID, observed.PIDStart); err != nil || !ok {
+		t.Fatalf("replace observed target: ok=%v, err=%v", ok, err)
+	}
+
+	_, reclaimed, err := s.ReclaimRename(ctx,
+		Agent{Workspace: "ws", Name: "backend", SessionID: "sess-1", Cwd: "/a2", PID: 111, PIDStart: 222}, observed)
+	if err != nil {
+		t.Fatalf("ReclaimRename: %v", err)
+	}
+	if reclaimed {
+		t.Fatal("ReclaimRename succeeded after the target identity changed")
+	}
+
+	target, err := s.GetAgent(ctx, "ws", "backend")
+	if err != nil || target.SessionID != "sess-3" {
+		t.Fatalf("changed target was overwritten: %+v, err=%v", target, err)
+	}
+	if _, err := s.GetAgent(ctx, "ws", "frontend"); err != nil {
+		t.Fatalf("source disappeared after rejected reclaiming rename: %v", err)
+	}
+}
+
+func TestReclaimRenameSucceedsForObservedTarget(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-1", Cwd: "/a", PID: 111, PIDStart: 222})
+	mustRegister(t, s, Agent{Workspace: "ws", Name: "backend", SessionID: "sess-2", Cwd: "/b", PID: 333, PIDStart: 444})
+	observed, err := s.GetAgent(ctx, "ws", "backend")
+	if err != nil {
+		t.Fatalf("GetAgent(target): %v", err)
+	}
+
+	oldName, reclaimed, err := s.ReclaimRename(ctx,
+		Agent{Workspace: "ws", Name: "backend", SessionID: "sess-1", Cwd: "/a2", PID: 111, PIDStart: 222}, observed)
+	if err != nil {
+		t.Fatalf("ReclaimRename: %v", err)
+	}
+	if !reclaimed || oldName != "frontend" {
+		t.Fatalf("ReclaimRename = (%q, %v), want (frontend, true)", oldName, reclaimed)
+	}
+	target, err := s.GetAgent(ctx, "ws", "backend")
+	if err != nil || target.SessionID != "sess-1" {
+		t.Fatalf("target was not reclaimed by source session: %+v, err=%v", target, err)
+	}
+}
+
 func TestRenameNoExistingSessionIsNoSuchAgent(t *testing.T) {
 	s := newStore(t)
 	_, err := s.Rename(context.Background(), Agent{Workspace: "ws", Name: "frontend", SessionID: "sess-ghost", Cwd: "/a"}, time.Time{})

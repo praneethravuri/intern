@@ -81,6 +81,13 @@ WHERE workspace = ? AND session_id = ?
 	// rename target before qRenameAgent runs, inside the same transaction.
 	qDeleteAgent = `DELETE FROM agents WHERE workspace = ? AND name = ?`
 
+	// qDeleteAgentIfIdentity is the compare-and-swap form used after a caller
+	// observed a dead rename target. A newly-live claimant must never be
+	// deleted just because it kept the same name.
+	qDeleteAgentIfIdentity = `
+DELETE FROM agents
+WHERE workspace = ? AND name = ? AND session_id = ? AND pid = ? AND pid_start = ?`
+
 	// qRenameMessages moves a renamed agent's pending mail along with it, so
 	// no message is left addressed to a name nobody holds any more.
 	qRenameMessages = `UPDATE messages SET to_name = ? WHERE to_ws = ? AND to_name = ?`

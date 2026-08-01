@@ -13,9 +13,9 @@ import (
 
 const registerLong = `Register this agent with the daemon so other agents can address it.
 
-The name is claimed inside a workspace, which is the basename of the git root
-of the current directory unless --workspace or $INTERN_WORKSPACE says
-otherwise. Other agents then reach you at name@workspace.
+The name is claimed inside a workspace derived from the shared Git root of
+the current directory unless --workspace or $INTERN_WORKSPACE says otherwise.
+Other agents then reach you at name@workspace.
 
 Every other command registers implicitly before its real request, so running
 this explicitly is optional -- it exists to let you pick a name and see it

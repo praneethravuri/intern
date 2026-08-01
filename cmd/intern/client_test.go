@@ -159,12 +159,15 @@ func TestCallIsNilSafe(t *testing.T) {
 func TestEnsureRegisteredFiresARegisterCall(t *testing.T) {
 	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Name: "frontend", Created: true}))
 
-	got, err := ensureRegistered("frontend", "storefront")
+	got, session, err := ensureRegistered("frontend", "storefront")
 	if err != nil {
 		t.Fatalf("ensureRegistered: %v", err)
 	}
 	if got != "frontend" {
 		t.Fatalf("ensureRegistered returned %q, want frontend", got)
+	}
+	if session == "" {
+		t.Fatal("ensureRegistered returned an empty session")
 	}
 
 	params := decodeParams[protocol.RegisterParams](t, d.only(t, protocol.MethodRegister))
@@ -179,12 +182,15 @@ func TestEnsureRegisteredFiresARegisterCall(t *testing.T) {
 func TestEnsureRegisteredResolvesAnEmptyName(t *testing.T) {
 	d := newFakeDaemon(t, okHandler(protocol.RegisterResult{Name: "claude-code-3f1a", Created: true}))
 
-	got, err := ensureRegistered("", "storefront")
+	got, session, err := ensureRegistered("", "storefront")
 	if err != nil {
 		t.Fatalf("ensureRegistered: %v", err)
 	}
 	if got != "claude-code-3f1a" {
 		t.Fatalf("ensureRegistered returned %q, want the daemon-resolved name", got)
+	}
+	if session == "" {
+		t.Fatal("ensureRegistered returned an empty session")
 	}
 
 	params := decodeParams[protocol.RegisterParams](t, d.only(t, protocol.MethodRegister))
@@ -200,7 +206,7 @@ func TestEnsureRegisteredResolvesAnEmptyName(t *testing.T) {
 func TestEnsureRegisteredSurfacesConflict(t *testing.T) {
 	newFakeDaemon(t, errHandler(protocol.CodeConflict, "taken"))
 
-	_, err := ensureRegistered("frontend", "storefront")
+	_, _, err := ensureRegistered("frontend", "storefront")
 	if err == nil {
 		t.Fatal("ensureRegistered succeeded despite a conflict")
 	}
@@ -216,12 +222,15 @@ func TestEnsureRegisteredSurfacesConflict(t *testing.T) {
 // what was actually asked for.
 func TestEnsureRegisteredSwallowsNonConflictFailures(t *testing.T) {
 	noDaemon(t)
-	got, err := ensureRegistered("frontend", "storefront")
+	got, session, err := ensureRegistered("frontend", "storefront")
 	if err != nil {
 		t.Fatalf("ensureRegistered should swallow a no-daemon failure, got: %v", err)
 	}
 	if got != "frontend" {
 		t.Fatalf("ensureRegistered returned %q, want the original name unchanged", got)
+	}
+	if session == "" {
+		t.Fatal("ensureRegistered returned an empty session")
 	}
 }
 

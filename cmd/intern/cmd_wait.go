@@ -71,11 +71,10 @@ func runWait(cmd *cobra.Command, opts *waitOptions) error {
 		return err
 	}
 
-	name, err = ensureRegistered(name, workspace)
+	name, session, err := ensureRegistered(name, workspace)
 	if err != nil {
 		return err
 	}
-	_, session := currentSession()
 
 	res, err := waitUpTo(name, workspace, session, opts.timeout)
 	if err != nil {
@@ -112,11 +111,15 @@ func waitUpTo(name, workspace, session string, total time.Duration) (protocol.Wa
 	transportFailures := 0
 
 	for {
+		timeoutMS := int(remaining.Milliseconds())
+		if timeoutMS < 1 {
+			timeoutMS = 1
+		}
 		params := protocol.WaitParams{
 			Name:      name,
 			Workspace: workspace,
 			Session:   session,
-			TimeoutMS: int(remaining.Milliseconds()),
+			TimeoutMS: timeoutMS,
 		}
 
 		var res protocol.WaitResult

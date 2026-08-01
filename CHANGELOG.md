@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-08-01
+
+### Fixed
+
+- Kept named plain-shell agents authenticated across `send`, `wait`, and
+  `inbox` after `register`.
+- Made `ls --all` and `claims --all` query every workspace even when
+  `--workspace` is also present.
+- Prevented concurrent stale-lock recovery, socket startup over regular files,
+  unsafe rename reclamation, false-positive doctor status, and sub-millisecond
+  waits that could become a one-minute daemon request.
+- Corrected command help, README, and bundled-agent guidance to match the
+  workspace, auto-start, all-workspace, and exit-code contracts.
+
 ## [0.3.1] - 2026-08-01
 
 ### Fixed

@@ -29,14 +29,18 @@ Run the binary from another terminal while developing:
 ./intern start
 ```
 
-Client commands auto-start the daemon when needed, so normally you can run
-`./intern register <name>`, `./intern send ...`, and the other commands
-directly. For an isolated local run, set `INTERN_SOCK`, `INTERN_DB`, and
-`INTERN_WORKSPACE` to test-specific values.
+Daemon-facing client commands auto-start the daemon when needed, so normally
+you can run `./intern register <name>`, `./intern send ...`, and the other
+commands directly. `./intern doctor` is the intentional exception: it only
+reports whether a daemon is reachable. For an isolated local run, set
+`INTERN_SOCK`, `INTERN_DB`, and `INTERN_WORKSPACE` to test-specific values.
+The directory containing an overridden `INTERN_SOCK` must not be writable by
+group or other users; use a fresh directory from `mktemp -d` (normally `0700`),
+not `/tmp` itself.
 
 ## Required verification
 
-Before opening a pull request, run the same release checks used for v0.3.1:
+Before opening a pull request, run the release checks:
 
 ```sh
 go mod tidy -diff
@@ -81,5 +85,4 @@ status changes, update all of these in the same change:
 - Cobra help and examples under `cmd/intern/`
 - tests that exercise the changed command
 
-Follow [`docs/releasing.md`](releasing.md) for the complete manual v0.3.1
-release procedure.
+Follow [`docs/releasing.md`](releasing.md) for the complete release procedure.
