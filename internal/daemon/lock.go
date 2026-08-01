@@ -1,79 +1,46 @@
 package daemon
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"strconv"
-	"strings"
-
-	"github.com/praneethravuri/intern/internal/proc"
+	"path/filepath"
+	"sync"
+	"syscall"
 )
 
-// acquireLock creates an exclusive marker file at path holding this
-// process's pid and start time, so two intern daemon processes can't both start
-// against the same socket, and a pid recycled onto a crashed daemon's number
-// is never mistaken for it still running. A stale lock is reclaimed and
-// retried once. Returns a release func to remove the lock file.
+// heldLocks closes the same-process gap that advisory file locks deliberately
+// do not cover. Production daemons are separate processes, but it also keeps
+// Run's in-process contract deterministic for callers and tests.
+var heldLocks sync.Map
+
+// acquireLock holds an advisory exclusive lock on the socket directory. The
+// operating system releases it if a daemon dies. Locking the directory avoids
+// ever opening or mutating a marker pathname that may be a symlink.
 func acquireLock(path string) (release func(), err error) {
-	const maxAttempts = 2
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			pid := os.Getpid()
-			start, _ := proc.StartTime(pid) // 0 on failure is proc.AliveAt's "unknown"
-			_, werr := fmt.Fprintf(f, "%d %d\n", pid, start)
-			cerr := f.Close()
-			if werr != nil || cerr != nil {
-				_ = os.Remove(path)
-				return nil, fmt.Errorf("intern: write lock file %s: %w", path, errors.Join(werr, cerr))
-			}
-			return func() { _ = os.Remove(path) }, nil
-		}
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, fmt.Errorf("intern: create lock file %s: %w", path, err)
-		}
-
-		pid, start, rerr := readLockIdentity(path)
-		if rerr != nil {
-			// Uncertain state (e.g. a concurrent writer mid-write) is treated as held.
-			return nil, fmt.Errorf("intern: lock file %s exists and could not be read: %w", path, rerr)
-		}
-		if proc.AliveAt(pid, start) {
-			return nil, fmt.Errorf(
-				"intern: another daemon (pid %d) is already starting up or running against %s: %w",
-				pid, path, ErrAlreadyRunning)
-		}
-		_ = os.Remove(path) // stale: creator is gone, or a different process now holds that pid
+	lockDir := filepath.Clean(filepath.Dir(path))
+	if _, loaded := heldLocks.LoadOrStore(lockDir, struct{}{}); loaded {
+		return nil, fmt.Errorf("intern: another daemon is already starting up or running in %s: %w", lockDir, ErrAlreadyRunning)
 	}
-
-	return nil, fmt.Errorf("intern: could not acquire lock file %s", path)
-}
-
-// readLockIdentity parses the pid, and start time if present, out of a lock
-// file written by acquireLock. A legacy single-field file (pid only, written
-// by an older intern) parses with start 0, which proc.AliveAt treats as
-// "unknown" and falls back to a plain pid check.
-func readLockIdentity(path string) (pid int, start int64, err error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return 0, 0, err
-	}
-	fields := strings.Fields(string(raw))
-	if len(fields) == 0 {
-		return 0, 0, fmt.Errorf("malformed lock file: empty")
-	}
-	pid, err = strconv.Atoi(fields[0])
-	if err != nil {
-		return 0, 0, fmt.Errorf("malformed lock file: %w", err)
-	}
-	if len(fields) > 1 {
-		start, err = strconv.ParseInt(fields[1], 10, 64)
+	defer func() {
 		if err != nil {
-			return 0, 0, fmt.Errorf("malformed lock file: %w", err)
+			heldLocks.Delete(lockDir)
 		}
+	}()
+
+	fd, err := syscall.Open(lockDir, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("intern: open socket directory %s: %w", lockDir, err)
 	}
-	return pid, start, nil
+	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = syscall.Close(fd)
+		if err == syscall.EWOULDBLOCK || err == syscall.EAGAIN {
+			return nil, fmt.Errorf("intern: another daemon is already starting up or running in %s: %w", lockDir, ErrAlreadyRunning)
+		}
+		return nil, fmt.Errorf("intern: lock socket directory %s: %w", lockDir, err)
+	}
+
+	return func() {
+		_ = syscall.Flock(fd, syscall.LOCK_UN)
+		_ = syscall.Close(fd)
+		heldLocks.Delete(lockDir)
+	}, nil
 }

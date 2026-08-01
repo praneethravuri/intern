@@ -78,7 +78,7 @@ func TestRun_DoubleStartReturnsErrAlreadyRunning(t *testing.T) {
 	dir := shortTempDir(t)
 	sockPath := filepath.Join(dir, "sock")
 
-	release, err := acquireLock(sockPath + ".lock")
+	release, err := acquireLock(sockPath)
 	if err != nil {
 		t.Fatalf("seed lock: %v", err)
 	}

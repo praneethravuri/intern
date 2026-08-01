@@ -173,13 +173,14 @@ func daemonCode(err error) (int, bool) {
 
 // ensureRegistered silently (re-)registers before a command's real request,
 // which is what makes registration implicit. name may be empty, meaning
-// "resolve whatever this session already registered, or mint one" -- the
-// returned name is what the caller's own request must use. A name conflict
-// is surfaced immediately; any other failure (usually no daemon) is
-// swallowed since the real call right after hits the same failure with a
-// more specific message -- in that case the original name is returned
-// unchanged, empty or not.
-func ensureRegistered(name, workspace string) (string, error) {
+// "resolve whatever this session already registered, or mint one". It
+// returns both the resolved name and the exact session used to register it;
+// the caller must use that pair in its immediate real request. A name
+// conflict is surfaced immediately; any other failure (usually no daemon) is
+// swallowed since the real call right after hits the same failure with a more
+// specific message -- in that case the original name and session are returned
+// unchanged.
+func ensureRegistered(name, workspace string) (string, string, error) {
 	cwd, _ := os.Getwd()
 	harness, session := currentSessionForAgent(name)
 
@@ -195,12 +196,12 @@ func ensureRegistered(name, workspace string) (string, error) {
 	var res protocol.RegisterResult
 	if err := call(protocol.MethodRegister, params, &res); err != nil {
 		if code, ok := daemonCode(err); ok && code == protocol.CodeConflict {
-			return "", registerError(name, workspace, err)
+			return "", "", registerError(name, workspace, err)
 		}
-		return name, nil
+		return name, session, nil
 	}
 	if res.Name != "" {
-		return res.Name, nil
+		return res.Name, session, nil
 	}
-	return name, nil
+	return name, session, nil
 }

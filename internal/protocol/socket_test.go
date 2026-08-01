@@ -202,6 +202,55 @@ func TestListen_ParentIsAFile(t *testing.T) {
 	}
 }
 
+func TestListen_PreservesNonSocketPath(t *testing.T) {
+	sockPath := filepath.Join(tempDir(t), "sock")
+	const contents = "do not remove\n"
+	if err := os.WriteFile(sockPath, []byte(contents), 0o600); err != nil {
+		t.Fatalf("seed regular file: %v", err)
+	}
+
+	listener, err := Listen(sockPath)
+	if err == nil {
+		_ = listener.Close()
+		t.Fatal("Listen() over a regular file: want error, got nil")
+	}
+
+	// #nosec G304 -- sockPath is a test-owned file created in tempDir.
+	raw, err := os.ReadFile(sockPath)
+	if err != nil {
+		t.Fatalf("read regular file after Listen: %v", err)
+	}
+	if string(raw) != contents {
+		t.Fatalf("regular file contents = %q, want %q", raw, contents)
+	}
+}
+
+func TestListen_AcceptsNonWritableSocketDirectory(t *testing.T) {
+	dir := tempDir(t)
+	// #nosec G302 -- this test intentionally verifies a non-writable 0755 directory.
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("make socket directory non-writable: %v", err)
+	}
+
+	listener, err := Listen(filepath.Join(dir, "sock"))
+	if err != nil {
+		t.Fatalf("Listen() in a non-writable directory: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+}
+
+func TestListen_RejectsWritableSocketDirectory(t *testing.T) {
+	dir := tempDir(t)
+	// #nosec G302 -- this test intentionally verifies rejection of a group-writable directory.
+	if err := os.Chmod(dir, 0o775); err != nil {
+		t.Fatalf("make socket directory group-writable: %v", err)
+	}
+
+	if _, err := Listen(filepath.Join(dir, "sock")); err == nil {
+		t.Fatal("Listen() in a writable directory: want error, got nil")
+	}
+}
+
 // unix's sun_path caps at roughly 104 bytes; a longer path makes bind(2) itself fail.
 func TestListen_PathTooLong(t *testing.T) {
 	dir := tempDir(t)

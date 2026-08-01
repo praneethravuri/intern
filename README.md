@@ -5,8 +5,8 @@
 `intern` is a local message bus for coding agents working on the same machine.
 Agents register a workspace-scoped name, exchange durable messages, wait for
 new mail without polling, and claim files while they work. A small daemon owns
-the local Unix socket and a per-user SQLite database; it starts automatically
-when a client command needs it.
+the local Unix socket and a per-user SQLite database; daemon-facing commands
+start it automatically when needed, while `intern doctor` only reports status.
 
 ## Install
 
@@ -24,7 +24,7 @@ go install github.com/praneethravuri/intern/cmd/intern@latest
 To install a particular release with the script, set `INTERN_VERSION`:
 
 ```sh
-curl -fsSL https://praneethravuri.github.io/intern/install.sh | INTERN_VERSION=v0.3.1 sh
+curl -fsSL https://praneethravuri.github.io/intern/install.sh | INTERN_VERSION=v0.3.2 sh
 ```
 
 ## A handoff between two agents
@@ -33,15 +33,15 @@ In the receiving agent's shell:
 
 ```sh
 intern register frontend
-intern wait --timeout 5m
-intern inbox
+intern wait --as frontend --timeout 5m
+intern inbox --as frontend
 ```
 
 In the sending agent's shell:
 
 ```sh
 intern register backend
-intern send frontend "The /orders response now returns a cursor."
+intern send frontend --as backend "The /orders response now returns a cursor."
 ```
 
 `wait` returns as soon as mail is pending. Operational commands write
@@ -63,14 +63,14 @@ Run `intern <command> --help` for the live flag descriptions.
 | --- | --- | --- |
 | `intern` | List agents in the current workspace. | none |
 | `intern start` | Run the daemon in the foreground. | none |
-| `intern register [name]` | Register or refresh a named agent. A plain shell can register several names; omit `name` to resolve or mint one. | `--as`, `--workspace` |
+| `intern register [name]` | Register or refresh a named agent. A plain shell can register several names; use `--as <name>` for later agent-specific commands. | `--as`, `--workspace` |
 | `intern send <to> [body]` | Send a message to an agent, another workspace, or every agent in this workspace. | `--as`, `--workspace`, `--kind`, `--reply-to`, `--body-file` |
 | `intern inbox` | Read and acknowledge pending mail. | `--as`, `--workspace`, `--limit`, `--peek`, `--replay` |
 | `intern wait` | Block until mail is pending or the timeout expires. | `--as`, `--workspace`, `--timeout` |
-| `intern ls` | List registered agents. | `--workspace`, `--all` |
+| `intern ls` | List registered agents; `--all` ignores `--workspace`. | `--workspace`, `--all` |
 | `intern claim <key>` | Acquire or renew exclusive ownership of a key, usually a file path. | `--workspace`, `--holder` |
 | `intern release <key>` | Release a claim using its lease ID. | `--workspace`, `--if-claim-id` |
-| `intern claims` | List file claims and their liveness. | `--workspace`, `--all` |
+| `intern claims` | List file claims and their liveness; `--all` ignores `--workspace`. | `--workspace`, `--all` |
 | `intern doctor` | Report daemon, workspace, socket, database, and detected harness status. | `--workspace` |
 | `intern version` | Print the binary version. | none |
 
@@ -82,9 +82,13 @@ result, including bare `intern`, is JSON; errors are written to stderr.
 
 Names are scoped to a workspace. A bare recipient such as `backend` targets
 the current workspace; `backend@storefront` targets another one. The daemon
-uses the repository's shared Git root to identify a workspace, so linked
-worktrees share it. Outside a repository it falls back to the current
-directory name.
+derives a stable workspace identity from the repository's shared Git root, so
+linked worktrees share it and same-named repositories do not collide. Outside
+a repository it falls back to the current directory name.
+
+In a plain shell, pair an explicit registration with `--as <name>` on later
+agent-specific commands. This lets one shell operate several named agents
+without mixing their identities.
 
 Use a role name such as `frontend`, `backend`, or `reviewer`. Names cannot
 contain whitespace, `@`, or control characters, and are limited to 32
@@ -99,7 +103,7 @@ For multi-line text or text containing shell-sensitive characters, send the
 body from a file or standard input:
 
 ```sh
-intern send reviewer --kind handoff --body-file - <<'EOF'
+intern send reviewer --as frontend --kind handoff --body-file - <<'EOF'
 The parser now returns (Config, error).
 Update callers under cmd/ before merging.
 EOF
@@ -143,7 +147,7 @@ These environment variables are useful for isolated runs and automation:
 
 | Variable | Effect |
 | --- | --- |
-| `INTERN_SOCK` | Override the Unix-socket path. |
+| `INTERN_SOCK` | Override the Unix-socket path; its parent must not be writable by group or others (use `0700` when possible). |
 | `INTERN_DB` | Override the SQLite database path. |
 | `INTERN_WORKSPACE` | Override workspace detection. |
 | `INTERN_SESSION_ID` | Provide a stable session ID for an otherwise unrecognised harness. |
@@ -162,4 +166,4 @@ These environment variables are useful for isolated runs and automation:
 ## Development and releases
 
 See [development notes](docs/development.md), [contributing guidelines](CONTRIBUTING.md),
-and the [manual v0.3.1 release procedure](docs/releasing.md).
+and the [release procedure](docs/releasing.md).

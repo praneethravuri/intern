@@ -50,14 +50,14 @@ func (f *identityFlags) addIdentity(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.name, "as", "",
 		"agent name to act as (defaults to whatever this session already registered, or a minted name)")
 	cmd.Flags().StringVar(&f.workspace, "workspace", "",
-		"workspace to use (defaults to the git root of the current directory)")
+		"workspace to use (defaults to the shared Git-root identity of the current directory)")
 }
 
 // addWorkspace registers only --workspace, for commands that do not act as a
 // specific agent.
 func (f *identityFlags) addWorkspace(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.workspace, "workspace", "",
-		"workspace to use (defaults to the git root of the current directory)")
+		"workspace to use (defaults to the shared Git-root identity of the current directory)")
 }
 
 // printJSON writes v as indented JSON followed by a newline. This is the only

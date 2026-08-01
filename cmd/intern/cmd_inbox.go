@@ -59,11 +59,10 @@ func runInbox(cmd *cobra.Command, opts *inboxOptions) error {
 		return failf(exitGeneral, "--peek and --replay cannot be used together")
 	}
 
-	name, err = ensureRegistered(name, workspace)
+	name, session, err := ensureRegistered(name, workspace)
 	if err != nil {
 		return err
 	}
-	_, session := currentSession()
 
 	params := protocol.InboxParams{
 		Name:      name,
