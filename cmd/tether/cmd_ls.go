@@ -47,15 +47,9 @@ func newLsCmd() *cobra.Command {
 }
 
 func runLs(cmd *cobra.Command, opts *lsOptions) error {
-	var workspace string
-	if !opts.all {
-		ws, err := resolveWorkspace(opts.workspace)
-		if err != nil {
-			return err
-		}
-		workspace = ws
-	} else {
-		workspace = opts.workspace
+	workspace, err := fleetWorkspace(opts.workspace, opts.all)
+	if err != nil {
+		return err
 	}
 
 	var res protocol.LsResult
@@ -90,6 +84,16 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 		return err
 	}
 	return next(out, fmt.Sprintf("tether send %s \"...\"", agentAddress(res.Agents[0])))
+}
+
+// fleetWorkspace resolves the workspace for a fleet-view command (ls, top):
+// every workspace when all is set, otherwise the usual flag/cwd resolution.
+// Shared so the two commands can never disagree on what --all means.
+func fleetWorkspace(workspaceFlag string, all bool) (string, error) {
+	if all {
+		return workspaceFlag, nil
+	}
+	return resolveWorkspace(workspaceFlag)
 }
 
 // fleetSummaryParts builds the aggregate line, e.g. ["3 agents", "1 quiet"];
