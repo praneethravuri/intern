@@ -3,10 +3,13 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -126,6 +129,31 @@ func TestClaim_DeadOwnerPIDIsRejected(t *testing.T) {
 	_ = c.mustFail(protocol.MethodClaim, protocol.ClaimParams{
 		Workspace: "proj", Key: "src/main.go", OwnerPID: implausiblePID,
 	}, protocol.CodeBadRequest)
+}
+
+// TestClaim_OwnerPIDInADifferentSessionIsRejected mirrors
+// TestRegister_PIDInADifferentSessionIsRejected (finding 6.3): claim's
+// OwnerPID is the same kind of trust boundary as register's session pid --
+// a live pid demonstrably not this connection and not in its session (the
+// shape a stolen victim pid would take) must be rejected, not trusted
+// outright just because it happens to be alive.
+func TestClaim_OwnerPIDInADifferentSessionIsRejected(t *testing.T) {
+	ts := newTestServer(t, nil)
+	c := ts.dial()
+
+	detached := exec.Command("sleep", "5")
+	detached.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := detached.Start(); err != nil {
+		t.Skipf("cannot start a detached process in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = detached.Process.Kill(); _ = detached.Wait() })
+
+	e := c.mustFail(protocol.MethodClaim, protocol.ClaimParams{
+		Workspace: "proj", Key: "src/main.go", OwnerPID: detached.Process.Pid, Holder: "eve",
+	}, protocol.CodeBadRequest)
+	if !strings.Contains(e.Message, fmt.Sprint(detached.Process.Pid)) {
+		t.Fatalf("error message %q does not name the rejected pid", e.Message)
+	}
 }
 
 func TestRelease_WithCorrectLeaseIDSucceeds(t *testing.T) {

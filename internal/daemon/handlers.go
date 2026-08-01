@@ -615,7 +615,7 @@ func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protoc
 
 // handleClaim acquires, renews, or reclaims a workspace/key claim for the
 // calling process.
-func (s *Server) handleClaim(ctx context.Context, req protocol.Request) protocol.Response {
+func (s *Server) handleClaim(ctx context.Context, req protocol.Request, peerPID int) protocol.Response {
 	var p protocol.ClaimParams
 	if err := decodeParams(req, &p); err != nil {
 		return s.fail(req.ID, err, "claim")
@@ -628,18 +628,37 @@ func (s *Server) handleClaim(ctx context.Context, req protocol.Request) protocol
 	if err != nil {
 		return s.fail(req.ID, err, "claim")
 	}
-	if p.OwnerPID <= 0 || !proc.Alive(p.OwnerPID) {
-		return s.fail(req.ID, badRequest("owner pid %d is not alive", p.OwnerPID), "claim")
+
+	// ownerPID is the claim's real trust boundary -- who this daemon will
+	// later treat as "the live process to reclaim from once it dies" -- so
+	// it gets the same peer-pid cross-check register's session pid does
+	// (finding 6.3): a claimed pid unrelated to this connection would let
+	// one process CAS-lock a key against a pid it does not actually control.
+	ownerPID := p.OwnerPID
+	switch {
+	case peerPID <= 0:
+		// no signal to check against; fall through unchanged
+	case ownerPID <= 0:
+		ownerPID = peerPID
+	case ownerPID == peerPID, proc.SameSession(ownerPID, peerPID):
+		// claimed pid is the connecting process, or shares its session
+	default:
+		return s.fail(req.ID, badRequest(
+			"pid %d is not this connection's process or in its session", ownerPID), "claim")
 	}
-	pidStart, _ := proc.StartTime(p.OwnerPID) // 0 on failure is proc.AliveAt's "unknown"
+
+	if ownerPID <= 0 || !proc.Alive(ownerPID) {
+		return s.fail(req.ID, badRequest("owner pid %d is not alive", ownerPID), "claim")
+	}
+	pidStart, _ := proc.StartTime(ownerPID) // 0 on failure is proc.AliveAt's "unknown"
 	holder := clip(strings.TrimSpace(p.Holder))
 
-	c, renewed, reclaimed, err := s.claimOrReclaim(ctx, ws, key, p.OwnerPID, pidStart, holder)
+	c, renewed, reclaimed, err := s.claimOrReclaim(ctx, ws, key, ownerPID, pidStart, holder)
 	if err != nil {
 		return s.fail(req.ID, err, "claim")
 	}
 
-	s.log.Printf("claim %s/%s (pid=%d renewed=%v reclaimed=%v)", ws, key, p.OwnerPID, renewed, reclaimed)
+	s.log.Printf("claim %s/%s (pid=%d renewed=%v reclaimed=%v)", ws, key, ownerPID, renewed, reclaimed)
 	return protocol.OK(req.ID, protocol.ClaimResult{
 		LeaseID: c.LeaseID, Holder: c.LeaseHolder,
 		ExpiresAt: formatTime(c.ExpiresAt), Renewed: renewed, Reclaimed: reclaimed,

@@ -379,7 +379,7 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 	case protocol.MethodExplain:
 		return s.handleExplain(ctx, req)
 	case protocol.MethodClaim:
-		return s.handleClaim(ctx, req)
+		return s.handleClaim(ctx, req, pid)
 	case protocol.MethodRelease:
 		return s.handleRelease(ctx, req)
 	case protocol.MethodClaims:
