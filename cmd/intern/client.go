@@ -58,7 +58,7 @@ func doCall(method string, params, result any, timeout time.Duration, autoStart 
 	if err != nil {
 		return failf(exitGeneral, "cannot generate a request id: %v", err)
 	}
-	req := protocol.Request{ID: reqID, V: protocol.Version, Method: method}
+	req := protocol.Request{ID: reqID, Method: method}
 	if params != nil {
 		raw, err := json.Marshal(params)
 		if err != nil {
@@ -79,12 +79,6 @@ func doCall(method string, params, result any, timeout time.Duration, autoStart 
 	}
 
 	if resp.Error != nil {
-		// A stale auto-started daemon and this binary disagree on the wire
-		// format; nothing short of a restart fixes that, so say so plainly
-		// rather than surfacing a bare protocol error code.
-		if resp.Error.Code == protocol.CodeVersionMismatch {
-			return failf(exitGeneral, "%s — run `pkill intern && intern ls` to replace it", resp.Error.Message)
-		}
 		return resp.Error
 	}
 

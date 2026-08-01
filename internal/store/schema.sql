@@ -1,4 +1,4 @@
--- intern schema v5. Applied on every daemon start, every statement idempotent.
+-- intern schema v1. Applied on every daemon start, every statement idempotent.
 -- Times are Unix milliseconds (INTEGER).
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS agents (
     registered_at INTEGER NOT NULL,
     last_seen     INTEGER NOT NULL,
     last_kind     TEXT    NOT NULL DEFAULT '',
-    last_note     TEXT    NOT NULL DEFAULT '',
     PRIMARY KEY (workspace, name)
 ) STRICT;
 

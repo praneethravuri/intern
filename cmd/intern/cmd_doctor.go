@@ -54,8 +54,6 @@ func newDoctorCmd() *cobra.Command {
 	}
 
 	opts.addWorkspace(cmd)
-	opts.addJSON(cmd)
-
 	return quiet(cmd)
 }
 
@@ -63,11 +61,7 @@ func runDoctor(cmd *cobra.Command, opts *identityFlags) error {
 	report := collectDoctorReport(opts.workspace)
 
 	out := cmd.OutOrStdout()
-	if opts.jsonOut {
-		if err := printJSON(out, report); err != nil {
-			return err
-		}
-	} else if err := writeDoctorReport(cmd, report); err != nil {
+	if err := printJSON(out, report); err != nil {
 		return err
 	}
 
@@ -144,89 +138,5 @@ func collectDoctorReport(workspaceFlag string) doctorReport {
 
 // humanBytes renders a byte count as e.g. "1.2 MB" -- decimal (1000-based)
 // units, matching how disk usage is normally reported.
-func humanBytes(n int64) string {
-	const unit = 1000
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit; m /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
-}
 
 // writeDoctorReport renders the report to stdout; warnings go to stderr.
-func writeDoctorReport(cmd *cobra.Command, r doctorReport) error {
-	out := cmd.OutOrStdout()
-
-	daemon := "reachable"
-	if !r.DaemonRunning {
-		daemon = "NOT reachable"
-	}
-
-	harness := sanitizeTerminal(r.Harness)
-	if r.SessionID != "" {
-		harness += " (session " + sanitizeTerminal(r.SessionID) + ")"
-	}
-
-	pairs := [][2]string{
-		{"daemon", daemon},
-		{"socket", dash(r.Socket)},
-		{"workspace", dash(r.Workspace)},
-		{"cwd", dash(r.Cwd)},
-		{"harness", dash(harness)},
-	}
-	if r.DBPath != "" {
-		pairs = append(pairs, [2]string{"database", fmt.Sprintf("%s (%s)", r.DBPath, humanBytes(r.DBSizeBytes))})
-	}
-	if r.DaemonLogPath != "" {
-		pairs = append(pairs, [2]string{"daemon log", r.DaemonLogPath})
-	}
-	if _, err := fmt.Fprintln(out, "intern doctor"); err != nil {
-		return err
-	}
-	if err := keyValues(out, pairs); err != nil {
-		return err
-	}
-
-	if !r.DaemonRunning {
-		_, err := fmt.Fprintln(out, "\nno daemon running — start it with `intern start`")
-		return err
-	}
-
-	if _, err := fmt.Fprintln(out); err != nil {
-		return err
-	}
-	if len(r.Agents) == 0 {
-		if _, err := fmt.Fprintf(out,
-			"no agents in %s — register one with `intern register --as <name>`\n",
-			r.Workspace); err != nil {
-			return err
-		}
-	} else {
-		if _, err := fmt.Fprintf(out, "%s in %s\n\n",
-			plural(len(r.Agents), "agent", "agents"), r.Workspace); err != nil {
-			return err
-		}
-		if err := writeAgentTable(out, r.Agents); err != nil {
-			return err
-		}
-	}
-
-	errOut := cmd.ErrOrStderr()
-	for _, w := range r.Warnings {
-		if _, err := fmt.Fprintln(errOut, w); err != nil {
-			return err
-		}
-	}
-
-	if r.Error != "" {
-		if _, err := fmt.Fprintf(out, "\nERROR: %s\n", sanitizeTerminal(r.Error)); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}

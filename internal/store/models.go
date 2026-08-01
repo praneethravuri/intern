@@ -27,7 +27,6 @@ type Agent struct {
 	PIDStart  int64
 	Dropped   int
 	LastKind  string
-	LastNote  string
 
 	RegisteredAt time.Time
 	LastSeen     time.Time

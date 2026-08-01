@@ -109,7 +109,7 @@ func (s *Server) handleRegister(ctx context.Context, req protocol.Request, peerP
 		}
 	}
 
-	s.touch(ctx, ws, name, "register", p.Doing)
+	s.touch(ctx, ws, name, "register")
 	s.log.Printf("registered %s (harness=%s pid=%d created=%v renamed=%v)",
 		a.Address(), harness, sessionPID, created, renamed)
 	return protocol.OK(req.ID, protocol.RegisterResult{
@@ -261,11 +261,10 @@ func (s *Server) authenticate(ctx context.Context, ws, name, session string) err
 // addr renders the canonical "name@workspace" form from separate strings.
 func addr(name, ws string) string { return name + "@" + ws }
 
-// touch refreshes last_seen and last_kind, and last_note when note is
-// non-empty; errors are logged, not propagated, since the handler's real
-// work already succeeded.
-func (s *Server) touch(ctx context.Context, ws, name, kind, note string) {
-	if _, err := s.store.Heartbeat(ctx, ws, name, kind, note); err != nil {
+// touch refreshes last_seen and last_kind; errors are logged, not
+// propagated, since the handler's real work already succeeded.
+func (s *Server) touch(ctx context.Context, ws, name, kind string) {
+	if _, err := s.store.Heartbeat(ctx, ws, name, kind); err != nil {
 		s.log.Printf("touch: heartbeat %s@%s: %v", name, ws, err)
 	}
 }
@@ -331,7 +330,7 @@ func (s *Server) handleSend(ctx context.Context, req protocol.Request) protocol.
 		return s.fail(req.ID, err, "send")
 	}
 
-	s.touch(ctx, fromWS, fromName, "send", "")
+	s.touch(ctx, fromWS, fromName, "send")
 	s.log.Printf("send %s -> %s (%s, id=%s)", addr(fromName, fromWS), addr(toName, toWS), kind, id)
 	return protocol.OK(req.ID, protocol.SendResult{MessageID: id, RecipientState: recipientState})
 }
@@ -400,7 +399,7 @@ func (s *Server) handleBroadcastSend(ctx context.Context, req protocol.Request, 
 			badRequest("broadcast to %d recipient(s) in %s failed entirely", eligible, toWS), "send")
 	}
 
-	s.touch(ctx, fromWS, fromName, "send", "")
+	s.touch(ctx, fromWS, fromName, "send")
 	s.log.Printf("broadcast send %s@%s -> */%s (%s, delivered=%d, failed=%d)",
 		fromName, fromWS, toWS, kind, len(addrs), failed)
 	return protocol.OK(req.ID, protocol.SendResult{Recipients: addrs, Delivered: len(addrs), Failed: failed})
@@ -467,7 +466,7 @@ func (s *Server) handleInbox(ctx context.Context, req protocol.Request) protocol
 	for _, m := range msgs {
 		views = append(views, messageView(m))
 	}
-	s.touch(ctx, ws, name, "inbox", "")
+	s.touch(ctx, ws, name, "inbox")
 	return protocol.OK(req.ID, protocol.InboxResult{
 		Messages: views,
 		Cleared:  cleared,
@@ -490,7 +489,7 @@ func (s *Server) handleWait(ctx context.Context, req protocol.Request) protocol.
 	if err := s.authenticate(ctx, ws, name, p.Session); err != nil {
 		return s.fail(req.ID, err, "wait")
 	}
-	s.touch(ctx, ws, name, "wait", "")
+	s.touch(ctx, ws, name, "wait")
 
 	requested := s.cfg.DefaultWait
 	if p.TimeoutMS > 0 {
@@ -544,7 +543,23 @@ func (s *Server) handleLs(ctx context.Context, req protocol.Request) protocol.Re
 
 	ws := strings.TrimSpace(p.Workspace)
 
-	// Unfiltered, like explain: an agent stops appearing only when the
+	// Single-agent detail view (the old "explain" path, merged into ls).
+	if p.Name != "" {
+		name := strings.TrimSpace(p.Name)
+		a, err := s.store.GetAgent(ctx, ws, name)
+		if err != nil {
+			return s.fail(req.ID, err, "ls")
+		}
+		pending, err := s.store.PendingCount(ctx, ws, name)
+		if err != nil {
+			return s.fail(req.ID, err, "ls")
+		}
+		blocked := s.waiters.Count(a.Address()) > 0
+		sr := computeState(a, blocked, time.Now())
+		return protocol.OK(req.ID, protocol.LsResult{Agents: []protocol.AgentView{agentView(a, sr, pending)}})
+	}
+
+	// Unfiltered: an agent stops appearing only when the
 	// sweeper deletes it, not after StaleAfter -- otherwise gone (the state
 	// you most want to see) becomes unreachable a few minutes after death.
 	agents, err := s.store.ListAgents(ctx, ws, 0)
@@ -588,29 +603,6 @@ func (s *Server) fleetPending(ctx context.Context, agents []store.Agent) (map[st
 		}
 	}
 	return pending, nil
-}
-
-func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protocol.Response {
-	var p protocol.ExplainParams
-	if err := decodeParams(req, &p); err != nil {
-		return s.fail(req.ID, err, "explain")
-	}
-	name, ws, err := requireAddress(p.Name, p.Workspace)
-	if err != nil {
-		return s.fail(req.ID, err, "explain")
-	}
-
-	a, err := s.store.GetAgent(ctx, ws, name)
-	if err != nil {
-		return s.fail(req.ID, err, "explain")
-	}
-	pending, err := s.store.PendingCount(ctx, ws, name)
-	if err != nil {
-		return s.fail(req.ID, err, "explain")
-	}
-	blocked := s.waiters.Count(a.Address()) > 0
-	sr := computeState(a, blocked, time.Now())
-	return protocol.OK(req.ID, protocol.ExplainResult{Agent: agentView(a, sr, pending)})
 }
 
 // handleClaim acquires, renews, or reclaims a workspace/key claim for the

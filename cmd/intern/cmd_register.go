@@ -26,7 +26,6 @@ your pending mail along with it -- your old name stops working immediately.`
 
 type registerOptions struct {
 	identityFlags
-	doing string
 }
 
 func newRegisterCmd() *cobra.Command {
@@ -37,9 +36,7 @@ func newRegisterCmd() *cobra.Command {
 		Short: "Register this agent so others can reach it",
 		Long:  registerLong,
 		Example: "  intern register frontend\n" +
-			"  intern register backend --workspace storefront\n" +
-			"  intern register --doing \"compiling tests, ~5min\"\n" +
-			"  intern register --json",
+			"  intern register backend --workspace storefront",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRegister(cmd, args, &opts)
@@ -47,10 +44,6 @@ func newRegisterCmd() *cobra.Command {
 	}
 
 	opts.addIdentity(cmd)
-	opts.addJSON(cmd)
-	cmd.Flags().StringVar(&opts.doing, "doing", "",
-		"what you're doing right now, shown by intern explain (e.g. \"compiling tests, ~5min\")")
-
 	return quiet(cmd)
 }
 
@@ -79,7 +72,6 @@ func runRegister(cmd *cobra.Command, args []string, opts *registerOptions) error
 		SessionID: sessionID,
 		Cwd:       cwd,
 		PID:       os.Getppid(), // the shell, not this short-lived CLI process
-		Doing:     opts.doing,
 	}
 
 	var res protocol.RegisterResult
@@ -88,32 +80,7 @@ func runRegister(cmd *cobra.Command, args []string, opts *registerOptions) error
 	}
 
 	out := cmd.OutOrStdout()
-	if opts.jsonOut {
-		return printJSON(out, res)
-	}
-
-	addr := res.Address
-	if addr == "" {
-		addr = address(res.Name, workspace)
-	}
-	addr = sanitizeTerminal(addr)
-
-	verb := "registered"
-	switch {
-	case res.Renamed:
-		verb = "renamed to"
-	case !res.Created:
-		verb = "refreshed registration for"
-	}
-	if _, err := fmt.Fprintf(out, "%s %s\n", verb, addr); err != nil {
-		return err
-	}
-	if err := keyValues(out, [][2]string{
-		{"harness", dash(res.Harness)},
-	}); err != nil {
-		return err
-	}
-	return next(out, "intern ls")
+	return printJSON(out, res)
 }
 
 // registerError turns a 409 (name held by a live agent) into an actionable

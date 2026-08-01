@@ -73,7 +73,7 @@ func TestRequest_RoundTripAllMethods(t *testing.T) {
 		{MethodInbox, InboxParams{Name: "a", Workspace: "w", Limit: 10, Replay: true}},
 		{MethodWait, WaitParams{Name: "a", Workspace: "w", TimeoutMS: 5000}},
 		{MethodLs, LsParams{Workspace: "w"}},
-		{MethodExplain, ExplainParams{Name: "a", Workspace: "w"}},
+		{MethodLs, LsParams{Name: "a", Workspace: "w"}},
 	}
 
 	for _, tc := range cases {

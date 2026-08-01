@@ -39,9 +39,6 @@ func computeState(a store.Agent, blocked bool, now time.Time) stateReport {
 			state, verb = "quiet", "last ran"
 		}
 		detail := fmt.Sprintf("%s intern %s", verb, a.LastKind)
-		if a.LastNote != "" {
-			detail = a.LastNote
-		}
 		return stateReport{State: state, Source: "heartbeat", Age: age, Detail: detail}
 	}
 	return stateReport{State: "unknown", Source: "registration", Age: now.Sub(a.RegisteredAt),

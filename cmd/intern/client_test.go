@@ -51,7 +51,7 @@ func TestCallWithoutADaemonExplainsHowToStartOne(t *testing.T) {
 func TestCallSurfacesDaemonErrorsWithTheirCode(t *testing.T) {
 	newFakeDaemon(t, errHandler(protocol.CodeNotFound, "no agent named ghost"))
 
-	err := call(protocol.MethodExplain, protocol.ExplainParams{Name: "ghost"}, nil)
+	err := call(protocol.MethodLs, protocol.LsParams{Name: "ghost"}, nil)
 	if err == nil {
 		t.Fatal("call succeeded against an erroring daemon")
 	}

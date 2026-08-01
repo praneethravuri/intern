@@ -352,12 +352,6 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 		}
 	}()
 
-	if req.V != protocol.Version {
-		return protocol.Fail(req.ID, protocol.CodeVersionMismatch,
-			fmt.Sprintf("daemon speaks protocol v%d, request declared v%d — restart the daemon",
-				protocol.Version, req.V))
-	}
-
 	// Wait is a long poll and must not inherit the per-request deadline.
 	if req.Method != protocol.MethodWait {
 		var cancel context.CancelFunc
@@ -376,8 +370,6 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 		return s.handleWait(ctx, req)
 	case protocol.MethodLs:
 		return s.handleLs(ctx, req)
-	case protocol.MethodExplain:
-		return s.handleExplain(ctx, req)
 	case protocol.MethodClaim:
 		return s.handleClaim(ctx, req, pid)
 	case protocol.MethodRelease:

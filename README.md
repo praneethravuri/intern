@@ -37,11 +37,10 @@ intern register backend
 intern send frontend "The /orders response now returns a cursor."
 ```
 
-The intern wakes Lead A when the message arrives. To watch the complete
-handoff, run:
+The intern wakes Lead A when the message arrives. All output is JSON:
 
-```sh
-intern demo
+```json
+{"pending":1,"timed_out":false}
 ```
 
 ## The intern's job description
@@ -50,14 +49,14 @@ intern demo
 | --- | --- |
 | `intern register <name>` | clock in with a team name |
 | `intern ls` | check who is at their desk |
+| `intern ls --detail <name>` | check one person's status |
 | `intern send <name> <message>` | deliver an internal memo |
 | `intern wait` | wait by the inbox for new mail |
 | `intern inbox` | open the mail tray |
 | `intern claim <path>` | put a "hands off" sign on a file |
 | `intern release <path>` | take the sign down |
-| `intern hooks install` | install the office intercom for Claude Code |
 
-Use `intern <command> --help` for flags and JSON output.
+Use `intern <command> --help` for flags. All commands emit JSON to stdout.
 
 ## What the intern guarantees
 
@@ -68,7 +67,7 @@ Use `intern <command> --help` for flags and JSON output.
 - Any coding-agent harness that can run a shell command can call the intern.
 
 For a different location, set `INTERN_SOCK`, `INTERN_DB`, or `INTERN_WORKSPACE`.
-Set `INTERN_VERSION=v0.2.0` when pinning the installer.
+Set `INTERN_VERSION=v0.3.0` when pinning the installer.
 
 ## Office layout
 
@@ -78,25 +77,3 @@ team lead A ── memo ──┐
 team lead B ── wait ──┘        │
                            Unix socket
 ```
-
-Each command is a short-lived client. The intern owns durable mail, presence,
-and file claims, so a restarted team lead does not lose their inbox.
-
-## More paperwork
-
-- [CLI reference](docs/reference.md)
-- [Harness verification](docs/harness-verification.md)
-- [Development guide](docs/development.md)
-- [Security model](SECURITY.md)
-- [Intern skill](skills/intern/SKILL.md)
-
-## Development
-
-```sh
-git clone https://github.com/praneethravuri/intern
-cd intern
-make build
-make test
-```
-
-MIT — see [LICENSE](LICENSE).

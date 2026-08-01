@@ -183,7 +183,7 @@ func (c *client) call(method string, params any) protocol.Response {
 	c.seq++
 	id := fmt.Sprintf("r%d", c.seq)
 
-	req := protocol.Request{ID: id, V: protocol.Version, Method: method}
+	req := protocol.Request{ID: id, Method: method}
 	if params != nil {
 		raw, err := json.Marshal(params)
 		if err != nil {
@@ -300,33 +300,6 @@ func TestRegister(t *testing.T) {
 // command's implicit re-register) with an empty Doing does not clear it --
 // the gotcha being guarded against is every other command re-registering
 // on every call.
-func TestRegister_DoingSetsLastNoteAndSurvivesAnEmptyReregister(t *testing.T) {
-	ts := newTestServer(t, nil)
-	c := ts.dial()
-
-	c.mustCall(protocol.MethodRegister, protocol.RegisterParams{
-		Name: "alice", Workspace: "proj", Harness: "test", SessionID: "sess-1",
-		Cwd: "/tmp", PID: os.Getpid(), Doing: "compiling tests, ~5min",
-	}, &protocol.RegisterResult{})
-
-	var st protocol.ExplainResult
-	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
-	if st.Agent.StateDetail != "compiling tests, ~5min" {
-		t.Fatalf("StateDetail = %q, want the note", st.Agent.StateDetail)
-	}
-
-	// An implicit re-register (every command sends one) has nothing to say
-	// about Doing, so it must send an empty string, not repeat the old note.
-	c.mustCall(protocol.MethodRegister, protocol.RegisterParams{
-		Name: "alice", Workspace: "proj", Harness: "test", SessionID: "sess-1",
-		Cwd: "/tmp", PID: os.Getpid(),
-	}, &protocol.RegisterResult{})
-
-	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
-	if st.Agent.StateDetail != "compiling tests, ~5min" {
-		t.Fatalf("StateDetail after empty-Doing re-register = %q, want the note preserved", st.Agent.StateDetail)
-	}
-}
 
 func TestRegister_DuplicateNameFromAnotherSessionConflicts(t *testing.T) {
 	ts := newTestServer(t, nil)
@@ -430,13 +403,13 @@ func TestRegister_ExplicitNameRenamesAndMovesMail(t *testing.T) {
 		t.Fatalf("Name = %q, want frontend", got.Name)
 	}
 
-	_ = c.mustFail(protocol.MethodExplain,
-		protocol.ExplainParams{Name: "alice", Workspace: "proj"}, protocol.CodeNotFound)
+	_ = c.mustFail(protocol.MethodLs,
+		protocol.LsParams{Name: "alice", Workspace: "proj"}, protocol.CodeNotFound)
 
-	var st protocol.ExplainResult
-	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "frontend", Workspace: "proj"}, &st)
-	if st.Agent.Pending != 1 {
-		t.Fatalf("frontend pending = %d, want 1 (mail must follow the rename)", st.Agent.Pending)
+	var st protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Name: "frontend", Workspace: "proj"}, &st)
+	if st.Agents[0].Pending != 1 {
+		t.Fatalf("frontend pending = %d, want 1 (mail must follow the rename)", st.Agents[0].Pending)
 	}
 }
 
@@ -506,10 +479,10 @@ func TestRegister_LivePidRecordsPidStart(t *testing.T) {
 
 	c.register("alice", "proj", "s1") // client.register uses os.Getpid(), which is alive
 
-	var st protocol.ExplainResult
-	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
-	if st.Agent.PID != os.Getpid() {
-		t.Fatalf("stored pid = %d, want %d", st.Agent.PID, os.Getpid())
+	var st protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Name: "alice", Workspace: "proj"}, &st)
+	if st.Agents[0].PID != os.Getpid() {
+		t.Fatalf("stored pid = %d, want %d", st.Agents[0].PID, os.Getpid())
 	}
 }
 
@@ -542,10 +515,10 @@ func TestRegister_DeadIncumbentReclaimedImmediately(t *testing.T) {
 		t.Fatalf("reclaim reported Created=true, want false (the row already existed)")
 	}
 
-	var st protocol.ExplainResult
-	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
-	if st.Agent.PID != os.Getpid() {
-		t.Fatalf("reclaim did not update the stored pid: %+v", st.Agent)
+	var st protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Name: "alice", Workspace: "proj"}, &st)
+	if st.Agents[0].PID != os.Getpid() {
+		t.Fatalf("reclaim did not update the stored pid: %+v", st.Agents[0])
 	}
 }
 
@@ -1229,15 +1202,15 @@ func TestWhoStatus(t *testing.T) {
 		t.Fatalf("who(all workspaces) = %d agents, want 2", len(who.Agents))
 	}
 
-	var st protocol.ExplainResult
-	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
-	if st.Agent.Address != "alice@proj" {
-		t.Fatalf("status agent = %+v", st.Agent)
+	var st protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Name: "alice", Workspace: "proj"}, &st)
+	if st.Agents[0].Address != "alice@proj" {
+		t.Fatalf("status agent = %+v", st.Agents[0])
 	}
-	if _, err := time.Parse(time.RFC3339, st.Agent.LastSeen); err != nil {
-		t.Fatalf("last_seen %q is not RFC3339: %v", st.Agent.LastSeen, err)
+	if _, err := time.Parse(time.RFC3339, st.Agents[0].LastSeen); err != nil {
+		t.Fatalf("last_seen %q is not RFC3339: %v", st.Agents[0].LastSeen, err)
 	}
-	_ = c.mustFail(protocol.MethodExplain, protocol.ExplainParams{Name: "ghost", Workspace: "proj"}, protocol.CodeNotFound)
+	_ = c.mustFail(protocol.MethodLs, protocol.LsParams{Name: "ghost", Workspace: "proj"}, protocol.CodeNotFound)
 }
 
 // TestWho_BlockedStateClearsOnRelease proves blocked is read from the live
@@ -1303,44 +1276,13 @@ func TestWho_BlockedStateClearsOnRelease(t *testing.T) {
 // misstates V never reaches a handler at all -- the version check runs
 // before dispatch, so a version-skewed peer gets a loud, distinct error
 // instead of Params silently decoding with whatever fields it recognises.
-func TestRequest_MissingOrWrongVersionIsRejected(t *testing.T) {
-	ts := newTestServer(t, nil)
-	c := ts.dial()
-
-	for _, v := range []int{0, protocol.Version + 1} {
-		reg, _ := json.Marshal(protocol.RegisterParams{Name: "alice", Workspace: "proj"})
-		req := protocol.Request{ID: "v", V: v, Method: protocol.MethodRegister, Params: reg}
-		if err := c.enc.Encode(req); err != nil {
-			t.Fatalf("encode: %v", err)
-		}
-		var resp protocol.Response
-		if err := c.dec.Decode(&resp); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if resp.Error == nil || resp.Error.Code != protocol.CodeVersionMismatch {
-			t.Fatalf("v=%d: response = %+v, want a %d", v, resp, protocol.CodeVersionMismatch)
-		}
-		if !strings.Contains(resp.Error.Message, "restart") {
-			t.Fatalf("v=%d: error message %q does not tell the caller to restart the daemon", v, resp.Error.Message)
-		}
-	}
-
-	// The connection survives a version mismatch; a correctly-versioned
-	// request right after still succeeds.
-	c.register("alice", "proj", "s1")
-}
-
-// TestDecodeParams_UnknownFieldIsRejected proves an unrecognised field in
-// Params is a hard error rather than silently ignored -- the mechanism that
-// would otherwise turn, say, a future --peek flag into a destructive drain
-// against an older daemon that doesn't know the field.
 func TestDecodeParams_UnknownFieldIsRejected(t *testing.T) {
 	ts := newTestServer(t, nil)
 	c := ts.dial()
 	c.register("bob", "proj", "s1")
 
 	raw := json.RawMessage(`{"name":"bob","workspace":"proj","session":"s1","peek":true,"from_the_future":42}`)
-	req := protocol.Request{ID: "u", V: protocol.Version, Method: protocol.MethodInbox, Params: raw}
+	req := protocol.Request{ID: "u", Method: protocol.MethodInbox, Params: raw}
 	if err := c.enc.Encode(req); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -1481,7 +1423,7 @@ func TestConcurrentClients(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if err := enc.Encode(protocol.Request{ID: "x", V: protocol.Version, Method: method, Params: raw}); err != nil {
+				if err := enc.Encode(protocol.Request{ID: "x", Method: method, Params: raw}); err != nil {
 					return err
 				}
 				var resp protocol.Response
@@ -1757,7 +1699,7 @@ func TestWait_ConcurrentWaitersAllWake(t *testing.T) {
 func TestHandleWait_PanicStillReleasesTheWaiter(t *testing.T) {
 	srv := NewServer(nil, Config{Logger: log.New(io.Discard, "", 0)})
 
-	req := protocol.Request{ID: "1", V: protocol.Version, Method: protocol.MethodWait}
+	req := protocol.Request{ID: "1", Method: protocol.MethodWait}
 	req.Params, _ = json.Marshal(protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 1000})
 
 	resp := srv.dispatch(context.Background(), req, 0)
@@ -1770,7 +1712,7 @@ func TestHandleWait_PanicStillReleasesTheWaiter(t *testing.T) {
 
 	// The server is still usable: a fresh wait on the same address blocks
 	// normally rather than tripping over a leftover entry.
-	req2 := protocol.Request{ID: "2", V: protocol.Version, Method: protocol.MethodLs}
+	req2 := protocol.Request{ID: "2", Method: protocol.MethodLs}
 	req2.Params, _ = json.Marshal(protocol.LsParams{Workspace: "proj"})
 	resp2 := srv.dispatch(context.Background(), req2, 0)
 	if resp2.Error == nil || resp2.Error.Code != protocol.CodeInternal {
@@ -1929,7 +1871,7 @@ func TestGracefulShutdownUnblocksEverything(t *testing.T) {
 	enc := json.NewEncoder(waitConn)
 	dec := json.NewDecoder(waitConn)
 	reg, _ := json.Marshal(protocol.RegisterParams{Name: "bob", Workspace: "proj"})
-	if err := enc.Encode(protocol.Request{ID: "1", V: protocol.Version, Method: protocol.MethodRegister, Params: reg}); err != nil {
+	if err := enc.Encode(protocol.Request{ID: "1", Method: protocol.MethodRegister, Params: reg}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	var resp protocol.Response
@@ -1938,7 +1880,7 @@ func TestGracefulShutdownUnblocksEverything(t *testing.T) {
 	}
 
 	waitParams, _ := json.Marshal(protocol.WaitParams{Name: "bob", Workspace: "proj", TimeoutMS: 300000})
-	if err := enc.Encode(protocol.Request{ID: "2", V: protocol.Version, Method: protocol.MethodWait, Params: waitParams}); err != nil {
+	if err := enc.Encode(protocol.Request{ID: "2", Method: protocol.MethodWait, Params: waitParams}); err != nil {
 		t.Fatalf("wait: %v", err)
 	}
 	time.Sleep(150 * time.Millisecond) // let it park
@@ -2165,8 +2107,8 @@ func TestRegisterSanitisesMetadata(t *testing.T) {
 		}
 	}
 
-	var st protocol.ExplainResult
-	c.mustCall(protocol.MethodExplain, protocol.ExplainParams{Name: "alice", Workspace: "proj"}, &st)
+	var st protocol.LsResult
+	c.mustCall(protocol.MethodLs, protocol.LsParams{Name: "alice", Workspace: "proj"}, &st)
 
 	// A same-session re-register must still be recognised as idempotent even
 	// though the session id went through stripControl -- sanitising must not

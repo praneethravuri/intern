@@ -79,7 +79,7 @@ func TestTouch_LogsHeartbeatFailuresWithoutPropagating(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ts.srv.touch(canceled, "ws", "alice", "register", "")
+	ts.srv.touch(canceled, "ws", "alice", "register")
 
 	mu.Lock()
 	got := buf.String()

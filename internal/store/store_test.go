@@ -484,7 +484,7 @@ func TestListAgentsFiltersByWorkspaceAndStaleness(t *testing.T) {
 
 	// Move time forward; only alice heartbeats, so only alice stays fresh.
 	clk.advance(5 * time.Minute)
-	if _, err := s.Heartbeat(ctx, "ws1", "alice", "send", ""); err != nil {
+	if _, err := s.Heartbeat(ctx, "ws1", "alice", "send"); err != nil {
 		t.Fatalf("Heartbeat: %v", err)
 	}
 
@@ -518,7 +518,7 @@ func TestHeartbeat(t *testing.T) {
 	mustSend(t, s, note("one"))
 	mustSend(t, s, note("two"))
 
-	pending, err := s.Heartbeat(ctx, "ws", "bob", "inbox", "")
+	pending, err := s.Heartbeat(ctx, "ws", "bob", "inbox")
 	if err != nil {
 		t.Fatalf("Heartbeat: %v", err)
 	}
@@ -528,7 +528,7 @@ func TestHeartbeat(t *testing.T) {
 
 	clk.advance(time.Second)
 	before, _ := s.GetAgent(ctx, "ws", "bob")
-	if _, err := s.Heartbeat(ctx, "ws", "bob", "send", "compiling tests"); err != nil {
+	if _, err := s.Heartbeat(ctx, "ws", "bob", "send"); err != nil {
 		t.Fatalf("Heartbeat(again): %v", err)
 	}
 	after, _ := s.GetAgent(ctx, "ws", "bob")
@@ -538,25 +538,8 @@ func TestHeartbeat(t *testing.T) {
 	if after.LastKind != "send" {
 		t.Errorf("last_kind = %q, want %q", after.LastKind, "send")
 	}
-	if after.LastNote != "compiling tests" {
-		t.Errorf("last_note = %q, want %q", after.LastNote, "compiling tests")
-	}
 
-	// An empty note must not clear the one just set -- this is what makes an
-	// implicit re-register (send/inbox/wait all heartbeat) safe against
-	// clobbering a `register --doing` note.
-	if _, err := s.Heartbeat(ctx, "ws", "bob", "wait", ""); err != nil {
-		t.Fatalf("Heartbeat(empty note): %v", err)
-	}
-	stillNoted, _ := s.GetAgent(ctx, "ws", "bob")
-	if stillNoted.LastNote != "compiling tests" {
-		t.Errorf("last_note after empty-note heartbeat = %q, want unchanged %q", stillNoted.LastNote, "compiling tests")
-	}
-	if stillNoted.LastKind != "wait" {
-		t.Errorf("last_kind after heartbeat = %q, want %q", stillNoted.LastKind, "wait")
-	}
-
-	if _, err := s.Heartbeat(ctx, "ws", "ghost", "send", ""); !errors.Is(err, ErrNoSuchAgent) {
+	if _, err := s.Heartbeat(ctx, "ws", "ghost", "send"); !errors.Is(err, ErrNoSuchAgent) {
 		t.Fatalf("Heartbeat(ghost) = %v, want ErrNoSuchAgent", err)
 	}
 }

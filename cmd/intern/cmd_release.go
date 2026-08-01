@@ -36,7 +36,6 @@ func newReleaseCmd() *cobra.Command {
 	}
 
 	opts.addWorkspace(cmd)
-	opts.addJSON(cmd)
 	cmd.Flags().StringVar(&opts.leaseID, "if-claim-id", "",
 		"lease id returned by intern claim (required)")
 
@@ -62,11 +61,7 @@ func runRelease(cmd *cobra.Command, key string, opts *releaseOptions) error {
 	}
 
 	out := cmd.OutOrStdout()
-	if opts.jsonOut {
-		return printJSON(out, res)
-	}
-	_, err = fmt.Fprintf(out, "released %s in %s\n", sanitizeTerminal(key), ws)
-	return err
+	return printJSON(out, res)
 }
 
 // releaseError maps a daemon failure to an actionable message and exit code:

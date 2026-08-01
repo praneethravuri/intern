@@ -1,10 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"io"
-	"text/tabwriter"
-
 	"github.com/spf13/cobra"
 
 	"github.com/praneethravuri/intern/internal/protocol"
@@ -40,7 +36,6 @@ func newLsCmd() *cobra.Command {
 	}
 
 	opts.addWorkspace(cmd)
-	opts.addJSON(cmd)
 	cmd.Flags().BoolVar(&opts.all, "all", false, "list agents in every workspace, not just this one")
 
 	return quiet(cmd)
@@ -59,31 +54,10 @@ func runLs(cmd *cobra.Command, opts *lsOptions) error {
 	}
 
 	out := cmd.OutOrStdout()
-	if opts.jsonOut {
-		if res.Agents == nil {
-			res.Agents = []protocol.AgentView{}
-		}
-		return printJSON(out, res)
+	if res.Agents == nil {
+		res.Agents = []protocol.AgentView{}
 	}
-
-	if len(res.Agents) == 0 {
-		return empty(out, "agents", "intern register --as <name>")
-	}
-
-	if err := aggregate(out, fleetSummaryParts(res.Agents)...); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(out); err != nil {
-		return err
-	}
-	if err := writeAgentTable(out, res.Agents); err != nil {
-		return err
-	}
-
-	if _, err := fmt.Fprintln(out); err != nil {
-		return err
-	}
-	return next(out, fmt.Sprintf("intern send %s \"...\"", agentAddress(res.Agents[0])))
+	return printJSON(out, res)
 }
 
 // fleetWorkspace resolves the workspace for a fleet-view command (ls, top):
@@ -98,51 +72,10 @@ func fleetWorkspace(workspaceFlag string, all bool) (string, error) {
 
 // fleetSummaryParts builds the aggregate line, e.g. ["3 agents", "1 quiet"];
 // only states that occur are listed.
-func fleetSummaryParts(agents []protocol.AgentView) []string {
-	counts := map[string]int{}
-	for _, a := range agents {
-		counts[a.State]++
-	}
-
-	parts := []string{plural(len(agents), "agent", "agents")}
-	for _, state := range []string{"gone", "blocked", "working", "quiet", "unknown"} {
-		if n := counts[state]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", n, state))
-		}
-	}
-	return parts
-}
 
 // writeAgentTable renders the agent list as an aligned table.
-func writeAgentTable(out io.Writer, agents []protocol.AgentView) error {
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "NAME\tHARNESS\tSTATE\tPENDING\tLAST SEEN"); err != nil {
-		return err
-	}
-	for _, a := range agents {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			agentAddress(a), dash(a.Harness), dash(a.State), pendingCell(a),
-			relTime(a.LastSeen)); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
-}
 
 // pendingCell renders the PENDING column, including any dropped count.
-func pendingCell(a protocol.AgentView) string {
-	if a.Dropped > 0 {
-		return fmt.Sprintf("%d (+%d dropped)", a.Pending, a.Dropped)
-	}
-	return fmt.Sprintf("%d", a.Pending)
-}
 
 // agentAddress prefers the daemon-reported address, falling back to composing
 // one; sanitised for the terminal.
-func agentAddress(a protocol.AgentView) string {
-	addr := a.Address
-	if addr == "" {
-		addr = address(a.Name, a.Workspace)
-	}
-	return sanitizeTerminal(addr)
-}

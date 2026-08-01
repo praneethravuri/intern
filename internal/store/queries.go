@@ -48,12 +48,11 @@ WHERE workspace = ? AND name = ? AND pid = ? AND pid_start = ?`
 	// re-register (send/inbox/wait all touch this on every call) can't
 	// silently clear a note `register --doing` just set.
 	qHeartbeat = `
-UPDATE agents SET last_seen = ?, last_kind = ?,
-    last_note = CASE WHEN ? = '' THEN last_note ELSE ? END
+UPDATE agents SET last_seen = ?, last_kind = ?
 WHERE workspace = ? AND name = ?`
 
 	agentCols = `workspace, name, harness, session_id, cwd, pid, pid_start,
-                 dropped, registered_at, last_seen, last_kind, last_note`
+                 dropped, registered_at, last_seen, last_kind`
 
 	qGetAgent = `SELECT ` + agentCols + ` FROM agents WHERE workspace = ? AND name = ?`
 

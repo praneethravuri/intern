@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -66,7 +65,6 @@ func newSendCmd() *cobra.Command {
 	}
 
 	opts.addIdentity(cmd)
-	opts.addJSON(cmd)
 	cmd.Flags().StringVar(&opts.kind, "kind", kindNote,
 		"message kind: "+strings.Join(validKinds, ", "))
 	cmd.Flags().StringVar(&opts.replyTo, "reply-to", "", "id of the message this replies to")
@@ -78,9 +76,6 @@ func newSendCmd() *cobra.Command {
 
 // isBroadcastTarget reports whether name is a reserved broadcast marker
 // (exact match, not a prefix — "allocator" is not a broadcast).
-func isBroadcastTarget(name string) bool {
-	return name == "*" || name == "all"
-}
 
 func runSend(cmd *cobra.Command, args []string, opts *sendOptions) error {
 	target, bodyArgs := args[0], args[1:]
@@ -132,29 +127,7 @@ func runSend(cmd *cobra.Command, args []string, opts *sendOptions) error {
 	}
 
 	out := cmd.OutOrStdout()
-	if opts.jsonOut {
-		return printJSON(out, res)
-	}
-
-	if isBroadcastTarget(toName) {
-		if res.Delivered == 0 && res.Failed == 0 {
-			_, err = fmt.Fprintf(out, "sent to nobody else in %s\n", toWorkspace)
-			return err
-		}
-		msg := fmt.Sprintf("sent to %s in %s", plural(res.Delivered, "agent", "agents"), toWorkspace)
-		if res.Failed > 0 { // never silently drop a partial-failure count
-			msg += fmt.Sprintf(" · %s failed", plural(res.Failed, "delivery", "deliveries"))
-		}
-		_, err = fmt.Fprintln(out, msg)
-		return err
-	}
-
-	if res.RecipientState != "" {
-		_, err = fmt.Fprintf(out, "sent %s to %s (%s)\n", res.MessageID, address(toName, toWorkspace), res.RecipientState)
-		return err
-	}
-	_, err = fmt.Fprintf(out, "sent %s to %s\n", res.MessageID, address(toName, toWorkspace))
-	return err
+	return printJSON(out, res)
 }
 
 // normaliseKind validates --kind and returns the canonical spelling.

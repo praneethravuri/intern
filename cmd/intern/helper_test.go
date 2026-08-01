@@ -289,12 +289,6 @@ func mustRun(t *testing.T, cmd *cobra.Command, stdin string, args ...string) run
 // unmarshalJSON decodes a command's --json output into v, failing the test if
 // the output is not valid JSON of that shape. This is the contract every
 // --json flag has to keep.
-func unmarshalJSON(t *testing.T, out string, v any) {
-	t.Helper()
-	if err := json.Unmarshal([]byte(out), v); err != nil {
-		t.Fatalf("--json output is not valid %T: %v\n%s", v, err, out)
-	}
-}
 
 // requireContains fails unless got contains want.
 func requireContains(t *testing.T, got, want, what string) {

@@ -25,7 +25,7 @@ func scanAgent(sc rowScanner) (Agent, error) {
 	)
 	err := sc.Scan(
 		&a.Workspace, &a.Name, &a.Harness, &a.SessionID, &a.Cwd, &pid, &a.PIDStart,
-		&dropped, &registered, &lastSeen, &a.LastKind, &a.LastNote,
+		&dropped, &registered, &lastSeen, &a.LastKind,
 	)
 	if err != nil {
 		return Agent{}, err
@@ -106,12 +106,12 @@ func (s *Store) ReclaimAgent(ctx context.Context, a Agent, incumbentPID int, inc
 // messages are waiting. note is only applied when non-empty -- an empty note
 // leaves last_note as it was, so a caller with nothing to say about "what are
 // you doing" can't accidentally clear a previous one.
-func (s *Store) Heartbeat(ctx context.Context, ws, name, kind, note string) (pending int, err error) {
+func (s *Store) Heartbeat(ctx context.Context, ws, name, kind string) (pending int, err error) {
 	if ws == "" || name == "" {
 		return 0, fmt.Errorf("%w: heartbeat needs workspace and name", ErrBadAddress)
 	}
 
-	res, err := s.w.ExecContext(ctx, qHeartbeat, s.nowMS(), kind, note, note, ws, name)
+	res, err := s.w.ExecContext(ctx, qHeartbeat, s.nowMS(), kind, ws, name)
 	if err != nil {
 		return 0, fmt.Errorf("store: heartbeat %s@%s: %w", name, ws, err)
 	}

@@ -141,7 +141,7 @@ func TestEndToEndOverRealSocket(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
 		}
-		if err := enc.Encode(protocol.Request{ID: id, V: protocol.Version, Method: method, Params: raw}); err != nil {
+		if err := enc.Encode(protocol.Request{ID: id, Method: method, Params: raw}); err != nil {
 			t.Fatalf("write %s: %v", method, err)
 		}
 		var resp protocol.Response

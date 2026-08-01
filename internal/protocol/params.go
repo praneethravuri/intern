@@ -9,9 +9,6 @@ type RegisterParams struct {
 	Cwd       string `json:"cwd"`
 	// PID is the session process (shell/harness), not the short-lived CLI call.
 	PID int `json:"pid"`
-	// Doing is free text shown by intern explain when present; empty leaves
-	// whatever note was set before untouched.
-	Doing string `json:"doing,omitempty"`
 }
 
 // RegisterResult is the result for MethodRegister.
@@ -110,9 +107,11 @@ type WaitResult struct {
 	Capped   bool `json:"capped,omitempty"`
 }
 
-// LsParams is the payload for MethodLs.
+// LsParams is the payload for MethodLs. When Name is set, only that
+// agent's view is returned (the --detail path); otherwise all agents.
 type LsParams struct {
 	Workspace string `json:"workspace"`
+	Name      string `json:"name,omitempty"`
 }
 
 // AgentView describes a registered agent. State/StateSource/StateAgeMS/
@@ -134,20 +133,10 @@ type AgentView struct {
 	LastSeen     string `json:"last_seen"`
 }
 
-// LsResult is the result for MethodLs.
+// LsResult is the result for MethodLs. When --detail <name> is requested,
+// Agents has exactly one entry; otherwise it has all agents in the workspace.
 type LsResult struct {
 	Agents []AgentView `json:"agents"`
-}
-
-// ExplainParams is the payload for MethodExplain.
-type ExplainParams struct {
-	Name      string `json:"name"`
-	Workspace string `json:"workspace"`
-}
-
-// ExplainResult is the result for MethodExplain.
-type ExplainResult struct {
-	Agent AgentView `json:"agent"`
 }
 
 // ClaimParams is the payload for MethodClaim. Acquiring a free key, renewing

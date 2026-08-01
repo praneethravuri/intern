@@ -1,10 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"io"
-	"text/tabwriter"
-
 	"github.com/spf13/cobra"
 
 	"github.com/praneethravuri/intern/internal/protocol"
@@ -38,7 +34,6 @@ func newClaimsCmd() *cobra.Command {
 	}
 
 	opts.addWorkspace(cmd)
-	opts.addJSON(cmd)
 	cmd.Flags().BoolVar(&opts.all, "all", false, "list claims in every workspace, not just this one")
 
 	return quiet(cmd)
@@ -56,30 +51,8 @@ func runClaims(cmd *cobra.Command, opts *claimsOptions) error {
 	}
 
 	out := cmd.OutOrStdout()
-	if opts.jsonOut {
-		if res.Claims == nil {
-			res.Claims = []protocol.ClaimView{}
-		}
-		return printJSON(out, res)
+	if res.Claims == nil {
+		res.Claims = []protocol.ClaimView{}
 	}
-
-	if len(res.Claims) == 0 {
-		return empty(out, "claims", "intern claim <key>")
-	}
-	return writeClaimsTable(out, res.Claims)
-}
-
-func writeClaimsTable(out io.Writer, claims []protocol.ClaimView) error {
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "WORKSPACE\tKEY\tSTATUS\tHOLDER\tEXPIRES"); err != nil {
-		return err
-	}
-	for _, c := range claims {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			sanitizeTerminal(c.Workspace), sanitizeTerminal(c.Key), dash(c.Status), dash(c.Holder),
-			relExpiry(c.ExpiresAt)); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
+	return printJSON(out, res)
 }

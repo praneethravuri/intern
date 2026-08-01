@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -50,7 +49,6 @@ func newWaitCmd() *cobra.Command {
 	}
 
 	opts.addIdentity(cmd)
-	opts.addJSON(cmd)
 	cmd.Flags().DurationVar(&opts.timeout, "timeout", defaultWaitTimeout,
 		"how long to block, as a Go duration (30s, 5m, 1h30m)")
 
@@ -83,22 +81,9 @@ func runWait(cmd *cobra.Command, opts *waitOptions) error {
 	}
 
 	out := cmd.OutOrStdout()
-	addr := address(name, workspace)
 
-	if opts.jsonOut {
-		if err := printJSON(out, res); err != nil {
-			return err
-		}
-	} else if res.TimedOut && res.Pending == 0 {
-		if _, err := fmt.Fprintf(out, "no messages for %s after %s\n",
-			addr, opts.timeout); err != nil {
-			return err
-		}
-	} else {
-		if _, err := fmt.Fprintf(out, "%s pending for %s — read with `intern inbox`\n",
-			plural(res.Pending, "message", "messages"), addr); err != nil {
-			return err
-		}
+	if err := printJSON(out, res); err != nil {
+		return err
 	}
 
 	if res.TimedOut && res.Pending == 0 {

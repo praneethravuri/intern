@@ -37,7 +37,7 @@ var identityBearingCommands = map[string]func() *cobra.Command{
 	"inbox":    newInboxCmd,
 	"wait":     newWaitCmd,
 	"ls":       newLsCmd,
-	"explain":  newExplainCmd,
+	"claim":    newClaimCmd,
 	"doctor":   newDoctorCmd,
 }
 
@@ -45,7 +45,7 @@ func TestRootHelpListsEveryCommand(t *testing.T) {
 	r := mustRun(t, newRootCmd(), "", "--help")
 
 	for _, want := range []string{
-		"start", "register", "send", "inbox", "wait", "ls", "explain", "doctor", "version",
+		"start", "register", "send", "inbox", "wait", "ls", "claim", "doctor", "version",
 	} {
 		requireContains(t, r.stdout, want, "help")
 	}
