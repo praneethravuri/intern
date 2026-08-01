@@ -332,6 +332,16 @@ func TestSyntheticSessionIDHonoursOverride(t *testing.T) {
 	}
 }
 
+func TestCurrentSessionForAgentKeepsExplicitOverride(t *testing.T) {
+	clearHarnessEnv(t)
+	t.Setenv(envSessionOverride, "fixed-session-id")
+
+	_, session := currentSessionForAgent("sender")
+	if session != "fixed-session-id" {
+		t.Fatalf("currentSessionForAgent() = %q, want the explicit override", session)
+	}
+}
+
 // TestSyntheticSessionIDIsStableForThisProcess is M2's core guarantee:
 // repeated calls from what is effectively "the same shell" (the same test
 // process, calling twice) must return the same value, or a harness-less

@@ -181,7 +181,7 @@ func daemonCode(err error) (int, bool) {
 // unchanged, empty or not.
 func ensureRegistered(name, workspace string) (string, error) {
 	cwd, _ := os.Getwd()
-	harness, session := currentSession()
+	harness, session := currentSessionForAgent(name)
 
 	params := protocol.RegisterParams{
 		Name:      name,

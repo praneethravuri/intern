@@ -68,10 +68,21 @@ func resolveSelf(nameFlag, workspaceFlag string) (name, workspace string, err er
 // Every command authenticating as itself must call this rather than
 // recompute the session id, or the daemon sees a false mismatch.
 func currentSession() (harness, session string) {
+	return currentSessionForAgent("")
+}
+
+// currentSessionForAgent derives a stable identity for name when a harness
+// does not provide one. A plain shell can host several named agents, while a
+// real harness session keeps its existing rename semantics.
+func currentSessionForAgent(name string) (harness, session string) {
 	harness, session = detectHarness()
-	if session == "" {
-		session = syntheticSessionID()
+	if session != "" {
+		return harness, session
 	}
+	if session = env(envSessionOverride); session != "" {
+		return harness, session
+	}
+	session = syntheticSessionIDFor(name)
 	return harness, session
 }
 
@@ -196,6 +207,16 @@ func syntheticSessionID() string {
 		return "" // cannot identify the parent; honest empty rather than fabricated
 	}
 	return fmt.Sprintf("shell-%d-%d", ppid, start)
+}
+
+// syntheticSessionIDFor gives each explicitly named shell agent its own
+// stable session id. Re-registering the same name keeps that identity.
+func syntheticSessionIDFor(name string) string {
+	session := syntheticSessionID()
+	if session == "" || name == "" {
+		return session
+	}
+	return session + ":" + name
 }
 
 // hasEnvPrefix reports whether any environment variable whose name starts with
