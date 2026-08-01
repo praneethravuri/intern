@@ -1,4 +1,4 @@
-module github.com/praneethravuri/tether
+module github.com/praneethravuri/intern
 
 go 1.26
 

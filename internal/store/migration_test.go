@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// schemaV1 is tether's pre-v2 schema, reconstructed by hand for migration tests.
+// schemaV1 is intern's pre-v2 schema, reconstructed by hand for migration tests.
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS agents (
     workspace     TEXT    NOT NULL,
@@ -210,7 +210,7 @@ VALUES ('01AAAA', '01AAAA', '', 'bob', 'ws', 'alice', 'ws', 'note', 'hello', '',
 	}
 }
 
-// schemaV2 is tether's pre-v3 schema, reconstructed by hand for migration
+// schemaV2 is intern's pre-v3 schema, reconstructed by hand for migration
 // tests -- the shape schema.sql had before observations was dropped.
 const schemaV2 = `
 CREATE TABLE IF NOT EXISTS agents (
@@ -508,7 +508,7 @@ func TestMigrateV3ToV4_WidensIdxInbox(t *testing.T) {
 	}
 }
 
-// schemaV4 is tether's pre-v5 schema, reconstructed by hand for migration
+// schemaV4 is intern's pre-v5 schema, reconstructed by hand for migration
 // tests -- the shape the database had before the claims table existed.
 const schemaV4 = `
 CREATE TABLE IF NOT EXISTS agents (

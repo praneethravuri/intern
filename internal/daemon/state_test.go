@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praneethravuri/tether/internal/proc"
-	"github.com/praneethravuri/tether/internal/store"
+	"github.com/praneethravuri/intern/internal/proc"
+	"github.com/praneethravuri/intern/internal/store"
 )
 
 // implausiblePIDForState mirrors server_test.go's implausiblePID: large
@@ -112,12 +112,12 @@ func TestComputeState_SourcesAndDetail(t *testing.T) {
 	}
 
 	working := computeState(store.Agent{LastKind: "send", LastSeen: now.Add(-time.Second)}, false, now)
-	if working.Source != "heartbeat" || working.Detail != "ran tether send" {
+	if working.Source != "heartbeat" || working.Detail != "ran intern send" {
 		t.Fatalf("working = %+v", working)
 	}
 
 	quiet := computeState(store.Agent{LastKind: "inbox", LastSeen: now.Add(-5 * time.Minute)}, false, now)
-	if quiet.Source != "heartbeat" || quiet.Detail != "last ran tether inbox" {
+	if quiet.Source != "heartbeat" || quiet.Detail != "last ran intern inbox" {
 		t.Fatalf("quiet = %+v", quiet)
 	}
 
@@ -128,7 +128,7 @@ func TestComputeState_SourcesAndDetail(t *testing.T) {
 }
 
 // TestComputeState_LastNoteOverridesDetail proves a `register --doing` note
-// takes over the generic "ran tether X" line once it's set, in both the
+// takes over the generic "ran intern X" line once it's set, in both the
 // working and quiet branches.
 func TestComputeState_LastNoteOverridesDetail(t *testing.T) {
 	now := time.Now()

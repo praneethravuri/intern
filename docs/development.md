@@ -18,13 +18,13 @@ push and pull request.
 ## Regenerating the CLI docs
 
 [`docs/reference.md`](reference.md)'s CLI Reference and Flags tables are
-generated from the live cobra command tree (`cmd/tether/docsgen.go`), not
+generated from the live cobra command tree (`cmd/intern/docsgen.go`), not
 hand-typed, so they can't silently drift the way nine earlier bugs did
 before that guarantee existed. After changing a command's flags, `Short`, or
 `Long` text, regenerate the checked-in file:
 
 ```sh
-go test ./cmd/tether -run TestGeneratedDocsMatchCheckedIn -update
+go test ./cmd/intern -run TestGeneratedDocsMatchCheckedIn -update
 ```
 
 `go test ./...` fails on its own if you forget: `TestGeneratedDocsMatchCheckedIn`

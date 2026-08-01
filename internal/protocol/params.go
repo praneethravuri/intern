@@ -9,7 +9,7 @@ type RegisterParams struct {
 	Cwd       string `json:"cwd"`
 	// PID is the session process (shell/harness), not the short-lived CLI call.
 	PID int `json:"pid"`
-	// Doing is free text shown by tether explain when present; empty leaves
+	// Doing is free text shown by intern explain when present; empty leaves
 	// whatever note was set before untouched.
 	Doing string `json:"doing,omitempty"`
 }
@@ -161,7 +161,7 @@ type ClaimParams struct {
 	// short-lived CLI call), paired server-side with its start time so a
 	// recycled pid is never mistaken for the original holder.
 	OwnerPID int `json:"owner_pid"`
-	// Holder is a free-text label shown by tether claims, like register's
+	// Holder is a free-text label shown by intern claims, like register's
 	// --doing -- purely diagnostic, never checked by release's logic.
 	Holder string `json:"holder,omitempty"`
 }

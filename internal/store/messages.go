@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/praneethravuri/tether/internal/id"
+	"github.com/praneethravuri/intern/internal/id"
 )
 
 // DefaultInboxLimit is used when a caller passes a non-positive limit.

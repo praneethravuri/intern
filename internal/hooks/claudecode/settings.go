@@ -42,19 +42,19 @@ type InstallResult struct {
 	Changed bool   `json:"changed"`
 }
 
-// Install idempotently merges tether's Stop and SessionStart hook entries
+// Install idempotently merges intern's Stop and SessionStart hook entries
 // into the Claude Code settings file at path, creating it (and its parent
 // directory) if absent. Every unrelated top-level key and every other hook
 // entry, including other tools' entries for the same events, is preserved.
 // The file is only touched when something actually changed.
-func Install(path, tetherExe string) (InstallResult, error) {
+func Install(path, internExe string) (InstallResult, error) {
 	doc, err := loadSettings(path)
 	if err != nil {
 		return InstallResult{}, err
 	}
 
 	stopChanged, err := doc.mergeHook(eventStop, subcommandStop, hookEntry{
-		Type: "command", Command: commandFor(tetherExe, subcommandStop),
+		Type: "command", Command: commandFor(internExe, subcommandStop),
 		Async: true, AsyncRewake: true,
 	})
 	if err != nil {
@@ -62,7 +62,7 @@ func Install(path, tetherExe string) (InstallResult, error) {
 	}
 
 	startChanged, err := doc.mergeHook(eventSessionStart, subcommandSessionStart, hookEntry{
-		Type: "command", Command: commandFor(tetherExe, subcommandSessionStart),
+		Type: "command", Command: commandFor(internExe, subcommandSessionStart),
 	})
 	if err != nil {
 		return InstallResult{}, err
@@ -77,8 +77,8 @@ func Install(path, tetherExe string) (InstallResult, error) {
 	return InstallResult{Path: path, Changed: true}, nil
 }
 
-// Status reports whether tether's hooks are present in a settings file and
-// whether they point at tetherExe's current path.
+// Status reports whether intern's hooks are present in a settings file and
+// whether they point at internExe's current path.
 type Status struct {
 	Path                  string `json:"path"`
 	StopInstalled         bool   `json:"stop_installed"`
@@ -88,7 +88,7 @@ type Status struct {
 }
 
 // Inspect reads path without modifying it and reports Status.
-func Inspect(path, tetherExe string) (Status, error) {
+func Inspect(path, internExe string) (Status, error) {
 	doc, err := loadSettings(path)
 	if err != nil {
 		return Status{}, err
@@ -98,8 +98,8 @@ func Inspect(path, tetherExe string) (Status, error) {
 		return Status{}, err
 	}
 
-	stopInstalled, stopCurrent := inspectEvent(hooks, eventStop, subcommandStop, commandFor(tetherExe, subcommandStop))
-	startInstalled, startCurrent := inspectEvent(hooks, eventSessionStart, subcommandSessionStart, commandFor(tetherExe, subcommandSessionStart))
+	stopInstalled, stopCurrent := inspectEvent(hooks, eventStop, subcommandStop, commandFor(internExe, subcommandStop))
+	startInstalled, startCurrent := inspectEvent(hooks, eventSessionStart, subcommandSessionStart, commandFor(internExe, subcommandSessionStart))
 
 	return Status{
 		Path:                  path,
@@ -227,8 +227,8 @@ func locate(groups []hookGroup, subcommand string) (gi, hi int, found bool) {
 	return 0, 0, false
 }
 
-// isOurCommand reports whether cmd is tether's own hook invocation for
-// subcommand, regardless of where the tether binary itself lives -- the
+// isOurCommand reports whether cmd is intern's own hook invocation for
+// subcommand, regardless of where the intern binary itself lives -- the
 // binary path prefix can change (see the repair case), but the subcommand
 // suffix it invokes cannot.
 func isOurCommand(cmd, subcommand string) bool {
@@ -238,11 +238,11 @@ func isOurCommand(cmd, subcommand string) bool {
 
 // commandFor renders the shell command Claude Code should run, quoting the
 // binary path only if it needs it.
-func commandFor(tetherExe, subcommand string) string {
-	if strings.ContainsAny(tetherExe, " \t\"'$`\\") {
-		tetherExe = fmt.Sprintf("%q", tetherExe)
+func commandFor(internExe, subcommand string) string {
+	if strings.ContainsAny(internExe, " \t\"'$`\\") {
+		internExe = fmt.Sprintf("%q", internExe)
 	}
-	return tetherExe + " " + subcommand
+	return internExe + " " + subcommand
 }
 
 // save writes doc to path, creating its parent directory if needed, via a

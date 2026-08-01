@@ -2,7 +2,7 @@ name: Go CI
 
 on:
   push:
-    branches: [ main, feat/*, feat/**, fix/* ]
+    branches: [ main, rebrand-*, feat/*, feat/**, fix/* ]
   pull_request:
     branches: [ main ]
 
@@ -165,7 +165,7 @@ jobs:
           openssl req -x509 -newkey rsa:2048 -nodes \
             -keyout "$RUNNER_TEMP/key.pem" -out "$RUNNER_TEMP/cert.pem" \
             -days 1 -subj "/CN=localhost"
-          sudo cp "$RUNNER_TEMP/cert.pem" /usr/local/share/ca-certificates/tether-install-e2e.crt
+          sudo cp "$RUNNER_TEMP/cert.pem" /usr/local/share/ca-certificates/intern-install-e2e.crt
           sudo update-ca-certificates
 
       - name: Serve the snapshot over https and run install.sh against it
@@ -194,8 +194,8 @@ jobs:
           done
 
           install_dir="$RUNNER_TEMP/install"
-          TETHER_BASE_URL="https://localhost:8443" TETHER_INSTALL_DIR="$install_dir" sh docs/install.sh
-          "$install_dir/tether" version
+          INTERN_BASE_URL="https://localhost:8443" INTERN_INSTALL_DIR="$install_dir" sh docs/install.sh
+          "$install_dir/intern" version
 
   cross-compile:
     name: cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
@@ -232,4 +232,4 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -trimpath -ldflags "-s -w" -o /tmp/tether ./cmd/tether
+        run: go build -trimpath -ldflags "-s -w" -o /tmp/intern ./cmd/intern

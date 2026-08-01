@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/praneethravuri/tether/internal/proc"
-	"github.com/praneethravuri/tether/internal/store"
+	"github.com/praneethravuri/intern/internal/proc"
+	"github.com/praneethravuri/intern/internal/store"
 )
 
 // stateReport is the computed, never-persisted answer for "what is this agent doing?"
@@ -13,10 +13,10 @@ type stateReport struct {
 	State  string        // gone | blocked | working | quiet | unknown
 	Source string        // pid | wait | heartbeat | registration
 	Age    time.Duration // age of the evidence, not of the agent itself
-	Detail string        // human-readable evidence, for `tether explain`
+	Detail string        // human-readable evidence, for `intern explain`
 }
 
-// workingWindow is how recently an agent must have run a tether command to
+// workingWindow is how recently an agent must have run a intern command to
 // read as working rather than quiet.
 const workingWindow = 60 * time.Second
 
@@ -30,7 +30,7 @@ func computeState(a store.Agent, blocked bool, now time.Time) stateReport {
 	}
 	if blocked {
 		return stateReport{State: "blocked", Source: "wait", Age: 0,
-			Detail: "parked in tether wait"}
+			Detail: "parked in intern wait"}
 	}
 	if a.LastKind != "" {
 		age := now.Sub(a.LastSeen)
@@ -38,7 +38,7 @@ func computeState(a store.Agent, blocked bool, now time.Time) stateReport {
 		if age >= workingWindow {
 			state, verb = "quiet", "last ran"
 		}
-		detail := fmt.Sprintf("%s tether %s", verb, a.LastKind)
+		detail := fmt.Sprintf("%s intern %s", verb, a.LastKind)
 		if a.LastNote != "" {
 			detail = a.LastNote
 		}
