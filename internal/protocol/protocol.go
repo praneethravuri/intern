@@ -38,6 +38,12 @@ const (
 	MethodWait     = "wait"
 	MethodLs       = "ls"
 	MethodExplain  = "explain"
+
+	// MethodClaim acquires, renews, or reclaims a workspace/key claim in one
+	// request; the daemon decides which happened.
+	MethodClaim   = "claim"
+	MethodRelease = "release"
+	MethodClaims  = "claims"
 )
 
 // Request represents an incoming command from an agent. Params stays raw so

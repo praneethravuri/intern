@@ -24,4 +24,15 @@ var (
 
 	// ErrBadAddress means an address could not be parsed as name@workspace.
 	ErrBadAddress = errors.New("store: bad address")
+
+	// ErrClaimHeld means a live owner already holds this workspace/key claim.
+	ErrClaimHeld = errors.New("store: claim already held by a live owner")
+
+	// ErrNoSuchClaim means no row exists for the workspace/key pair.
+	ErrNoSuchClaim = errors.New("store: no such claim")
+
+	// ErrClaimMismatch means the given lease id does not match the claim's
+	// current lease -- either a stale id from an earlier acquisition, or one
+	// that was never valid.
+	ErrClaimMismatch = errors.New("store: claim lease id does not match the current lease")
 )

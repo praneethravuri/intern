@@ -612,3 +612,147 @@ func (s *Server) handleExplain(ctx context.Context, req protocol.Request) protoc
 	sr := computeState(a, blocked, time.Now())
 	return protocol.OK(req.ID, protocol.ExplainResult{Agent: agentView(a, sr, pending)})
 }
+
+// handleClaim acquires, renews, or reclaims a workspace/key claim for the
+// calling process.
+func (s *Server) handleClaim(ctx context.Context, req protocol.Request, peerPID int) protocol.Response {
+	var p protocol.ClaimParams
+	if err := decodeParams(req, &p); err != nil {
+		return s.fail(req.ID, err, "claim")
+	}
+	ws, err := requireWorkspace(p.Workspace)
+	if err != nil {
+		return s.fail(req.ID, err, "claim")
+	}
+	key, err := requireClaimKey(p.Key)
+	if err != nil {
+		return s.fail(req.ID, err, "claim")
+	}
+
+	// ownerPID is the claim's real trust boundary -- who this daemon will
+	// later treat as "the live process to reclaim from once it dies" -- so
+	// it gets the same peer-pid cross-check register's session pid does
+	// (finding 6.3): a claimed pid unrelated to this connection would let
+	// one process CAS-lock a key against a pid it does not actually control.
+	ownerPID := p.OwnerPID
+	switch {
+	case peerPID <= 0:
+		// no signal to check against; fall through unchanged
+	case ownerPID <= 0:
+		ownerPID = peerPID
+	case ownerPID == peerPID, proc.SameSession(ownerPID, peerPID):
+		// claimed pid is the connecting process, or shares its session
+	default:
+		return s.fail(req.ID, badRequest(
+			"pid %d is not this connection's process or in its session", ownerPID), "claim")
+	}
+
+	if ownerPID <= 0 || !proc.Alive(ownerPID) {
+		return s.fail(req.ID, badRequest("owner pid %d is not alive", ownerPID), "claim")
+	}
+	pidStart, _ := proc.StartTime(ownerPID) // 0 on failure is proc.AliveAt's "unknown"
+	holder := clip(strings.TrimSpace(p.Holder))
+
+	c, renewed, reclaimed, err := s.claimOrReclaim(ctx, ws, key, ownerPID, pidStart, holder)
+	if err != nil {
+		return s.fail(req.ID, err, "claim")
+	}
+
+	s.log.Printf("claim %s/%s (pid=%d renewed=%v reclaimed=%v)", ws, key, ownerPID, renewed, reclaimed)
+	return protocol.OK(req.ID, protocol.ClaimResult{
+		LeaseID: c.LeaseID, Holder: c.LeaseHolder,
+		ExpiresAt: formatTime(c.ExpiresAt), Renewed: renewed, Reclaimed: reclaimed,
+	})
+}
+
+// claimOrReclaim performs the guarded claim, and when the key is held by a
+// provably dead owner, reclaims it via a compare-and-swap on the incumbent's
+// exact owner_pid/owner_pid_start rather than a blind overwrite -- the same
+// shape registerOrReclaim uses for agent names. renewed reports whether this
+// call extended the caller's own still-live claim, a cosmetic best-effort
+// read like registerOrReclaim's "created" (it can race under a same-instant
+// collision; it only affects what the CLI prints).
+func (s *Server) claimOrReclaim(ctx context.Context, ws, key string, ownerPID int, ownerPIDStart int64, holder string) (c store.Claim, renewed, reclaimed bool, err error) {
+	incumbent, getErr := s.store.GetClaim(ctx, ws, key)
+	existed := getErr == nil
+
+	c, err = s.store.Claim(ctx, ws, key, ownerPID, ownerPIDStart, holder, s.cfg.ClaimTTL)
+	if err == nil {
+		renewed = existed && incumbent.OwnerPID == ownerPID && incumbent.OwnerPIDStart == ownerPIDStart
+		return c, renewed, false, nil
+	}
+	if !errors.Is(err, store.ErrClaimHeld) {
+		return store.Claim{}, false, false, err
+	}
+
+	// Re-read: the conflict above may be a claim that expired between our
+	// first read and the guarded claim attempt.
+	incumbent, getErr = s.store.GetClaim(ctx, ws, key)
+	if getErr != nil {
+		return store.Claim{}, false, false, err // could not confirm the incumbent; report the original conflict
+	}
+	if proc.AliveAt(incumbent.OwnerPID, incumbent.OwnerPIDStart) {
+		return store.Claim{}, false, false, err // still alive: a genuine conflict
+	}
+
+	c, ok, rErr := s.store.ReclaimClaim(ctx, ws, key,
+		incumbent.OwnerPID, incumbent.OwnerPIDStart, ownerPID, ownerPIDStart, holder, s.cfg.ClaimTTL)
+	if rErr != nil {
+		return store.Claim{}, false, false, rErr
+	}
+	if !ok {
+		// The row moved between our checks: someone else raced in. Report
+		// the original conflict rather than silently doing nothing.
+		return store.Claim{}, false, false, fmt.Errorf("%w: %s/%s", store.ErrClaimHeld, ws, key)
+	}
+	return c, false, true, nil
+}
+
+// handleRelease releases a claim the caller holds, verified by lease id in
+// one compare-and-swap statement inside Store.Release -- not a check then a
+// separate act.
+func (s *Server) handleRelease(ctx context.Context, req protocol.Request) protocol.Response {
+	var p protocol.ReleaseParams
+	if err := decodeParams(req, &p); err != nil {
+		return s.fail(req.ID, err, "release")
+	}
+	ws, err := requireWorkspace(p.Workspace)
+	if err != nil {
+		return s.fail(req.ID, err, "release")
+	}
+	key, err := requireClaimKey(p.Key)
+	if err != nil {
+		return s.fail(req.ID, err, "release")
+	}
+	leaseID := strings.TrimSpace(p.LeaseID)
+	if leaseID == "" {
+		return s.fail(req.ID, badRequest("lease id is required"), "release")
+	}
+
+	if err := s.store.Release(ctx, ws, key, leaseID); err != nil {
+		return s.fail(req.ID, err, "release")
+	}
+	s.log.Printf("release %s/%s", ws, key)
+	return protocol.OK(req.ID, protocol.ReleaseResult{})
+}
+
+// handleClaims lists claims, each with a freshly computed status.
+func (s *Server) handleClaims(ctx context.Context, req protocol.Request) protocol.Response {
+	var p protocol.ClaimsParams
+	if err := decodeParams(req, &p); err != nil {
+		return s.fail(req.ID, err, "claims")
+	}
+	ws := strings.TrimSpace(p.Workspace)
+
+	claims, err := s.store.ListClaims(ctx, ws)
+	if err != nil {
+		return s.fail(req.ID, err, "claims")
+	}
+
+	now := time.Now()
+	views := make([]protocol.ClaimView, 0, len(claims))
+	for _, c := range claims {
+		views = append(views, claimView(c, now))
+	}
+	return protocol.OK(req.ID, protocol.ClaimsResult{Claims: views})
+}

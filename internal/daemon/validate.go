@@ -108,6 +108,28 @@ func requireWorkspace(ws string) (string, error) {
 	return ws, nil
 }
 
+// MaxClaimKeyLength keeps a claim key well clear of practical limits while
+// still fitting a deep file path.
+const MaxClaimKeyLength = 1024
+
+// requireClaimKey validates and normalises a claim key. Unlike requireName,
+// this is not a path parser and imposes no shape beyond "non-empty, no
+// control bytes, not absurdly long" -- most callers pass a file path, but
+// nothing here assumes that.
+func requireClaimKey(key string) (string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", badRequest("key is required")
+	}
+	if hasControlBytes(key) {
+		return "", badRequest("key must not contain control characters")
+	}
+	if len(key) > MaxClaimKeyLength {
+		return "", badRequest("key must be at most %d characters", MaxClaimKeyLength)
+	}
+	return key, nil
+}
+
 // clampLimit turns a non-positive limit into the default and rejects
 // anything past maxInboxRequestLimit with a 400, rather than silently truncating.
 func clampLimit(limit int) (int, error) {

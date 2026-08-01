@@ -70,6 +70,25 @@ func (m Message) From() string { return m.FromName + "@" + m.FromWS }
 // To returns the recipient as "name@workspace".
 func (m Message) To() string { return m.ToName + "@" + m.ToWS }
 
+// Claim is a lease on a caller-supplied key (typically a file path) within a
+// workspace, uniquely identified by (Workspace, Key). OwnerPID/OwnerPIDStart,
+// LeaseID, and LeaseHolder/LeasedAt are three separate facts that are never
+// inferred from one another: a live-process reservation, a durable lease
+// identity, and a diagnostic label, respectively.
+type Claim struct {
+	Workspace string
+	Key       string
+
+	OwnerPID      int
+	OwnerPIDStart int64
+
+	LeaseID     string
+	LeaseHolder string
+
+	LeasedAt  time.Time
+	ExpiresAt time.Time
+}
+
 // ValidKind reports whether k is a known message kind.
 func ValidKind(k string) bool {
 	return kind.Valid(k)

@@ -111,6 +111,30 @@ func humanSince(d time.Duration) string {
 	}
 }
 
+// relExpiry renders an RFC3339 expiry timestamp as a short relative
+// countdown, e.g. "in 15m", or "expired" once past.
+func relExpiry(ts string) string {
+	if ts == "" {
+		return "unknown"
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ts
+	}
+	d := time.Until(t)
+	if d <= 0 {
+		return "expired"
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("in %ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("in %dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("in %dh", int(d.Hours()))
+	}
+}
+
 // plural renders "1 message" / "2 messages".
 func plural(n int, one, many string) string {
 	if n == 1 {

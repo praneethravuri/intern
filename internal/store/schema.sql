@@ -1,4 +1,4 @@
--- tether schema v3. Applied on every daemon start, every statement idempotent.
+-- tether schema v5. Applied on every daemon start, every statement idempotent.
 -- Times are Unix milliseconds (INTEGER).
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -40,4 +40,21 @@ CREATE INDEX IF NOT EXISTS idx_inbox
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+) STRICT;
+
+-- A claim is a lease on a caller-supplied key (typically a file path) within
+-- a workspace. owner_pid/owner_pid_start is the live process holding it --
+-- self-healing, the same pairing agents use for presence; lease_id is
+-- opaque and re-minted on every acquisition (see internal/store/claims.go);
+-- lease_holder/leased_at are diagnostic labels only, never load-bearing.
+CREATE TABLE IF NOT EXISTS claims (
+    workspace       TEXT    NOT NULL,
+    key             TEXT    NOT NULL,
+    owner_pid       INTEGER NOT NULL DEFAULT 0,
+    owner_pid_start INTEGER NOT NULL DEFAULT 0,
+    lease_id        TEXT    NOT NULL,
+    lease_holder    TEXT    NOT NULL DEFAULT '',
+    leased_at       INTEGER NOT NULL,
+    expires_at      INTEGER NOT NULL,
+    PRIMARY KEY (workspace, key)
 ) STRICT;
