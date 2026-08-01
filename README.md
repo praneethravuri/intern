@@ -1,6 +1,7 @@
 # intern
 
 [![CI](https://img.shields.io/github/actions/workflow/status/praneethravuri/intern/go.yml?branch=main&style=flat-square&label=CI)](https://github.com/praneethravuri/intern/actions/workflows/go.yml)
+[![Release Please](https://img.shields.io/github/actions/workflow/status/praneethravuri/intern/release-please.yml?branch=main&style=flat-square&label=Release%20Please)](https://github.com/praneethravuri/intern/actions/workflows/release-please.yml)
 [![Release](https://img.shields.io/github/v/release/praneethravuri/intern?style=flat-square)](https://github.com/praneethravuri/intern/releases/latest)
 [![Skills](https://skills.sh/b/praneethravuri/intern)](https://skills.sh/praneethravuri/intern/intern)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-blue?style=flat-square)](#install)
