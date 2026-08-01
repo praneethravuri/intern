@@ -22,41 +22,71 @@ func commandsByName(t *testing.T) map[string]*cobra.Command {
 	return m
 }
 
-func readReadme(t *testing.T) string {
+// readDocsReference reads docs/reference.md, where the CLI Reference and
+// Flags tables now live (moved out of README.md in the docs rewrite).
+func readDocsReference(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "reference.md"))
 	if err != nil {
-		t.Fatalf("read README.md: %v", err)
+		t.Fatalf("read docs/reference.md: %v", err)
 	}
 	return string(b)
 }
 
+// resolveCmdPath finds the command named by a space-joined path such as
+// "hooks install", walking from a top-level entry in cmds.
+func resolveCmdPath(cmds map[string]*cobra.Command, path string) (*cobra.Command, bool) {
+	parts := strings.Fields(path)
+	if len(parts) == 0 {
+		return nil, false
+	}
+	cmd, ok := cmds[parts[0]]
+	if !ok {
+		return nil, false
+	}
+	for _, name := range parts[1:] {
+		found := false
+		for _, c := range cmd.Commands() {
+			if c.Name() == name {
+				cmd, found = c, true
+				break
+			}
+		}
+		if !found {
+			return nil, false
+		}
+	}
+	return cmd, true
+}
+
 // flagRow matches one Flags-table row: "| `command` | `--flag ...` | ...".
-var flagRow = regexp.MustCompile("^\\| `([a-z]+)` \\| `--([a-zA-Z-]+)")
+var flagRow = regexp.MustCompile("^\\| `([a-z ]+)` \\| `--([a-zA-Z-]+)")
 
 // TestReadmeFlagsTableMatchesRegisteredFlags kills spec drift 3: every
-// per-command flag the README's Flags table documents must actually be
-// registered on that cobra command, so a renamed or removed flag is caught
-// here instead of by a user hitting "unknown flag".
+// per-command flag docs/reference.md's Flags table documents must actually
+// be registered on that cobra command, so a renamed or removed flag is
+// caught here instead of by a user hitting "unknown flag". Redundant with
+// TestGeneratedDocsMatchCheckedIn's byte-for-byte check, but cheap and
+// keeps this file's original intent readable on its own.
 func TestReadmeFlagsTableMatchesRegisteredFlags(t *testing.T) {
 	cmds := commandsByName(t)
 
 	matched := 0
-	for _, line := range strings.Split(readReadme(t), "\n") {
+	for _, line := range strings.Split(readDocsReference(t), "\n") {
 		m := flagRow.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
-		cmdName, flagName := m[1], m[2]
+		cmdPath, flagName := m[1], m[2]
 		matched++
 
-		cmd, ok := cmds[cmdName]
+		cmd, ok := resolveCmdPath(cmds, cmdPath)
 		if !ok {
-			t.Errorf("README documents --%s on %q, which is not a real command", flagName, cmdName)
+			t.Errorf("docs/reference.md documents --%s on %q, which is not a real command", flagName, cmdPath)
 			continue
 		}
 		if cmd.Flags().Lookup(flagName) == nil {
-			t.Errorf("README documents --%s on %q, but that command has no such flag", flagName, cmdName)
+			t.Errorf("docs/reference.md documents --%s on %q, but that command has no such flag", flagName, cmdPath)
 		}
 	}
 	if matched < 8 {
@@ -65,8 +95,8 @@ func TestReadmeFlagsTableMatchesRegisteredFlags(t *testing.T) {
 }
 
 // TestUniversalFlagsMatchReadmeClaim locks in which commands accept
-// --as/--workspace/--json, matching the CLI Reference sentence in README.md.
-// Update both together if a command's flag set changes.
+// --as/--workspace/--json, matching the CLI Reference sentence in
+// docs/reference.md. Update both together if a command's flag set changes.
 func TestUniversalFlagsMatchReadmeClaim(t *testing.T) {
 	identityBearing := []string{"register", "send", "inbox", "wait", "explain"}
 	workspaceOnly := []string{"ls", "doctor", "claim", "release", "claims"}
