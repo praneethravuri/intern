@@ -69,7 +69,7 @@ func TestReadmeFlagsTableMatchesRegisteredFlags(t *testing.T) {
 // Update both together if a command's flag set changes.
 func TestUniversalFlagsMatchReadmeClaim(t *testing.T) {
 	identityBearing := []string{"register", "send", "inbox", "wait", "explain"}
-	workspaceOnly := []string{"ls", "doctor"}
+	workspaceOnly := []string{"ls", "doctor", "claim", "release", "claims"}
 	// top refreshes continuously, so a one-shot --json snapshot doesn't fit.
 	workspaceOnlyNoJSON := []string{"top"}
 

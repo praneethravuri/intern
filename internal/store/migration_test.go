@@ -184,8 +184,8 @@ VALUES ('01AAAA', '01AAAA', '', 'bob', 'ws', 'alice', 'ws', 'note', 'hello', '',
 	if err := s.w.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("read schema_version: %v", err)
 	}
-	if version != "4" {
-		t.Errorf("schema_version = %q, want %q", version, "4")
+	if version != "5" {
+		t.Errorf("schema_version = %q, want %q", version, "5")
 	}
 
 	// The pre-existing rows must have survived the migration, defaults and
@@ -314,8 +314,8 @@ VALUES ('ws', 'alice', 'send', 'bob@ws', 1800)`); err != nil {
 	if err := s.w.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("read schema_version: %v", err)
 	}
-	if version != "4" {
-		t.Errorf("schema_version = %q, want %q", version, "4")
+	if version != "5" {
+		t.Errorf("schema_version = %q, want %q", version, "5")
 	}
 
 	a, err := s.GetAgent(ctx, "ws", "alice")
@@ -355,8 +355,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 		if err := s.w.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 			t.Fatalf("Open #%d: read schema_version: %v", i+1, err)
 		}
-		if version != "4" {
-			t.Fatalf("Open #%d: schema_version = %q, want %q", i+1, version, "4")
+		if version != "5" {
+			t.Fatalf("Open #%d: schema_version = %q, want %q", i+1, version, "5")
 		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("Close #%d: %v", i+1, err)
@@ -505,5 +505,103 @@ func TestMigrateV3ToV4_WidensIdxInbox(t *testing.T) {
 	}
 	if !hasIndex(t, s.w, "messages", "idx_messages_created_at") {
 		t.Error("idx_messages_created_at was not created")
+	}
+}
+
+// schemaV4 is tether's pre-v5 schema, reconstructed by hand for migration
+// tests -- the shape the database had before the claims table existed.
+const schemaV4 = `
+CREATE TABLE IF NOT EXISTS agents (
+    workspace     TEXT    NOT NULL,
+    name          TEXT    NOT NULL,
+    harness       TEXT    NOT NULL DEFAULT 'unknown',
+    session_id    TEXT    NOT NULL DEFAULT '',
+    cwd           TEXT    NOT NULL,
+    pid           INTEGER NOT NULL DEFAULT 0,
+    pid_start     INTEGER NOT NULL DEFAULT 0,
+    dropped       INTEGER NOT NULL DEFAULT 0,
+    registered_at INTEGER NOT NULL,
+    last_seen     INTEGER NOT NULL,
+    last_kind     TEXT    NOT NULL DEFAULT '',
+    last_note     TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (workspace, name)
+) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_session ON agents (workspace, session_id) WHERE session_id <> '';
+
+CREATE TABLE IF NOT EXISTS messages (
+    id           TEXT    PRIMARY KEY,
+    thread_id    TEXT    NOT NULL,
+    reply_to     TEXT    NOT NULL DEFAULT '',
+    from_name    TEXT    NOT NULL,
+    from_ws      TEXT    NOT NULL,
+    to_name      TEXT    NOT NULL,
+    to_ws        TEXT    NOT NULL,
+    kind         TEXT    NOT NULL DEFAULT 'note'
+                 CHECK (kind IN ('note','handoff','question','answer')),
+    body         TEXT    NOT NULL,
+    created_at   INTEGER NOT NULL,
+    delivered_at INTEGER,
+    acked_at     INTEGER,
+    dead         INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_inbox ON messages (to_ws, to_name, acked_at, dead, id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at);
+
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) STRICT;
+`
+
+// TestMigrateV4ToV5_AddsClaimsTable opens a database stamped at v4, with no
+// claims table, and verifies Open brings it fully up to v5: the table
+// exists with the expected shape, the version is recorded, and a claim can
+// actually round-trip through it.
+func TestMigrateV4ToV5_AddsClaimsTable(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v4.db")
+
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open raw v4 db: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, schemaV4); err != nil {
+		t.Fatalf("apply v4 schema: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '4')`); err != nil {
+		t.Fatalf("seed v4 version: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open (should migrate v4 -> v5): %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	cols := tableInfoCols(t, s.w, "claims")
+	for _, want := range []string{
+		"workspace", "key", "owner_pid", "owner_pid_start",
+		"lease_id", "lease_holder", "leased_at", "expires_at",
+	} {
+		if !contains(cols, want) {
+			t.Errorf("claims columns = %v, missing %q", cols, want)
+		}
+	}
+
+	var version string
+	if err := s.w.QueryRowContext(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("read schema_version: %v", err)
+	}
+	if version != "5" {
+		t.Fatalf("schema_version = %q, want %q", version, "5")
+	}
+
+	if _, err := s.Claim(ctx, "ws", "src/main.go", 111, 222, "alice", time.Hour); err != nil {
+		t.Fatalf("Claim on the migrated database: %v", err)
 	}
 }

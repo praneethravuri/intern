@@ -30,6 +30,10 @@ func (s *Server) fail(id string, err error, op string) protocol.Response {
 		return protocol.Fail(id, protocol.CodeTooLarge, publicMessage(err))
 	case errors.Is(err, store.ErrEmptyBody), errors.Is(err, store.ErrBadAddress):
 		return protocol.Fail(id, protocol.CodeBadRequest, publicMessage(err))
+	case errors.Is(err, store.ErrClaimHeld), errors.Is(err, store.ErrClaimMismatch):
+		return protocol.Fail(id, protocol.CodeConflict, publicMessage(err))
+	case errors.Is(err, store.ErrNoSuchClaim):
+		return protocol.Fail(id, protocol.CodeNotFound, publicMessage(err))
 	default:
 		ref := s.nextRef()
 		s.log.Printf("%s failed [%s]: %v", op, ref, err)
@@ -96,5 +100,18 @@ func agentView(a store.Agent, sr stateReport, pending int) protocol.AgentView {
 		Dropped:      a.Dropped,
 		RegisteredAt: formatTime(a.RegisteredAt),
 		LastSeen:     formatTime(a.LastSeen),
+	}
+}
+
+// claimView renders one claim plus its freshly computed status for the wire.
+func claimView(c store.Claim, now time.Time) protocol.ClaimView {
+	return protocol.ClaimView{
+		Workspace: c.Workspace,
+		Key:       c.Key,
+		OwnerPID:  c.OwnerPID,
+		Holder:    c.LeaseHolder,
+		Status:    claimStatus(c, now),
+		LeasedAt:  formatTime(c.LeasedAt),
+		ExpiresAt: formatTime(c.ExpiresAt),
 	}
 }

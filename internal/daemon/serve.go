@@ -166,6 +166,14 @@ func (s *Server) sweepOnce(ctx context.Context) {
 
 	s.sweepDeadAgents(ctx)
 
+	if n, err := s.store.SweepExpiredClaims(ctx); err != nil {
+		if ctx.Err() == nil {
+			s.log.Printf("sweep expired claims failed: %v", err)
+		}
+	} else if n > 0 {
+		s.log.Printf("swept %d expired claim(s)", n)
+	}
+
 	if s.cfg.LogPath != "" {
 		if err := rotateIfLarge(s.cfg.LogPath); err != nil {
 			s.log.Printf("log rotation failed: %v", err)
@@ -370,6 +378,12 @@ func (s *Server) dispatch(ctx context.Context, req protocol.Request, pid int) (r
 		return s.handleLs(ctx, req)
 	case protocol.MethodExplain:
 		return s.handleExplain(ctx, req)
+	case protocol.MethodClaim:
+		return s.handleClaim(ctx, req)
+	case protocol.MethodRelease:
+		return s.handleRelease(ctx, req)
+	case protocol.MethodClaims:
+		return s.handleClaims(ctx, req)
 	default:
 		return protocol.Fail(req.ID, protocol.CodeBadRequest, "unknown method: "+clip(req.Method))
 	}
