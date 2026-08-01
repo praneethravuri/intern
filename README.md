@@ -1,17 +1,12 @@
 # intern
 
-[![CI](https://img.shields.io/github/actions/workflow/status/praneethravuri/intern/go.yml?branch=main&style=flat-square&label=CI)](https://github.com/praneethravuri/intern/actions/workflows/go.yml)
-[![Release](https://img.shields.io/github/v/release/praneethravuri/intern?style=flat-square)](https://github.com/praneethravuri/intern/releases/latest)
-[![Skills](https://skills.sh/b/praneethravuri/intern)](https://skills.sh/praneethravuri/intern/intern)
-[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-blue?style=flat-square)](#install)
+Your AI team's unpaid intern.
 
-Intern is a tiny local message bus for coding agents. It carries messages between
-team leads, waits for replies, and keeps agents from editing the same file at
-the same time.
+Intern carries messages between coding sessions, waits for replies, and puts a
+"hands off" sign on files so the team leads can ship without stepping on each
+other. One local Go CLI. No server. No meetings.
 
-It is one CLI, one background daemon, and no server to configure.
-
-## Install
+## Hire the intern
 
 ```sh
 curl -fsSL https://praneethravuri.github.io/intern/install.sh | sh
@@ -24,67 +19,68 @@ Or install with Go:
 go install github.com/praneethravuri/intern/cmd/intern@latest
 ```
 
-## Two agents, one handoff
+## One handoff, two team leads
 
-Team lead A registers and waits:
+Lead A clocks in and waits:
 
 ```sh
 intern register frontend
 intern wait --timeout 5m
 ```
 
-Team lead B sends the update:
+Lead B sends the update:
 
 ```sh
 intern register backend
 intern send frontend "The /orders response now returns a cursor."
 ```
 
-The daemon starts on first use. Try the complete exchange with:
+The intern wakes Lead A when the message arrives. To watch the complete
+handoff, run:
 
 ```sh
 intern demo
 ```
 
-## Core commands
+## The intern's job description
 
-| Command | Use it to |
+| Command | Corporate translation |
 | --- | --- |
-| `intern register <name>` | join the current workspace |
-| `intern ls` | see registered agents and their state |
-| `intern send <name> <message>` | send a note, question, or handoff |
-| `intern wait` | block until mail arrives |
-| `intern inbox` | read pending mail |
-| `intern claim <path>` | reserve a file before editing it |
-| `intern release <path>` | release a file claim |
-| `intern hooks install` | deliver mail through Claude Code hooks |
+| `intern register <name>` | clock in with a team name |
+| `intern ls` | check who is at their desk |
+| `intern send <name> <message>` | deliver an internal memo |
+| `intern wait` | wait by the inbox for new mail |
+| `intern inbox` | open the mail tray |
+| `intern claim <path>` | put a "hands off" sign on a file |
+| `intern release <path>` | take the sign down |
+| `intern hooks install` | install the office intercom for Claude Code |
 
 Use `intern <command> --help` for flags and JSON output.
 
-## What it does
+## What the intern guarantees
 
-- Keeps state in a per-user SQLite database under `~/.intern/`.
-- Communicates over a local Unix socket; no network service is required.
-- Scopes names and messages to the current workspace.
-- Expires stale agents and file claims automatically.
-- Works from any coding-agent harness that can run a shell command.
+- Messages survive agent restarts in a per-user SQLite database under `~/.intern/`.
+- Communication stays local over a Unix socket; there is no network service to operate.
+- Names and messages are scoped to the current workspace.
+- Stale agents and file claims are retired automatically.
+- Any coding-agent harness that can run a shell command can call the intern.
 
-For a different location, set `INTERN_SOCK`, `INTERN_DB`, or
-`INTERN_WORKSPACE`. Set `INTERN_VERSION=v0.2.0` when pinning the installer.
+For a different location, set `INTERN_SOCK`, `INTERN_DB`, or `INTERN_WORKSPACE`.
+Set `INTERN_VERSION=v0.2.0` when pinning the installer.
 
-## The intern's clipboard
+## Office layout
 
 ```text
-agent A ── send ──┐
-                  ├─ intern daemon ── SQLite
-agent B ── wait ──┘       │
-                      Unix socket
+team lead A ── memo ──┐
+                      ├─ intern daemon ── SQLite
+team lead B ── wait ──┘        │
+                           Unix socket
 ```
 
-Each command is a short-lived client. The daemon owns durable mail, presence,
-and claims, so a restarted agent does not lose its inbox.
+Each command is a short-lived client. The intern owns durable mail, presence,
+and file claims, so a restarted team lead does not lose their inbox.
 
-## More
+## More paperwork
 
 - [CLI reference](docs/reference.md)
 - [Harness verification](docs/harness-verification.md)
