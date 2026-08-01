@@ -1,5 +1,7 @@
 # intern
 
+![Intern corporate office](assets/intern-readme-banner.jpg)
+
 Your AI team's unpaid intern.
 
 Intern carries messages between coding sessions, waits for replies, and puts a
