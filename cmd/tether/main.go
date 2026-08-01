@@ -182,6 +182,7 @@ func newRootCmd() *cobra.Command {
 		newExplainCmd(),
 		newDoctorCmd(),
 		newDemoCmd(),
+		newHooksCmd(),
 	)
 
 	return root

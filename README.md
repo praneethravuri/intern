@@ -124,6 +124,7 @@ Both agents resolved the same workspace — the basename of the git root — so 
 | `tether explain [name[@workspace]]` (alias `status`) | Explains one agent's computed state, the evidence behind it, and its pending mail. Defaults to you. |
 | `tether doctor` | Diagnoses the daemon, resolved workspace, detected harness, database health, and every agent. Never auto-starts. |
 | `tether demo` | Spins up an isolated daemon and runs a real handoff between two scripted agents, so you can watch tether work without any setup. |
+| `tether hooks install` | Claude Code only: writes a Stop/SessionStart hook into `.claude/settings.json` (`--user` for the global one) so mail delivers without polling `wait`. Merges, never overwrites; run `tether hooks status` to check it. |
 | `tether version` | Prints the version. |
 
 `ls`/`explain` compute a state fresh on every call, never stored, in priority order: `gone` (pid no longer alive) → `blocked` (parked in a live `wait`) → `working` (ran a command in the last 60s) → `quiet` (ran one, just not recently) → `unknown` (registered, nothing observed yet). `register --doing "compiling tests, ~5min"` sets a note that `explain` shows in place of the generic evidence string, for anything that runs long enough to otherwise read as quiet.
