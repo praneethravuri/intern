@@ -192,7 +192,7 @@ func writeDoctorReport(cmd *cobra.Command, r doctorReport) error {
 	}
 
 	if !r.DaemonRunning {
-		_, err := fmt.Fprintln(out, "\nno daemon running — start it with `tether`")
+		_, err := fmt.Fprintln(out, "\nno daemon running — start it with `tether start`")
 		return err
 	}
 

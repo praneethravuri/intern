@@ -160,7 +160,7 @@ type testDaemon struct {
 func startDaemon(t *testing.T, sock, db string) *testDaemon {
 	t.Helper()
 
-	cmd := exec.Command(tetherBin)
+	cmd := exec.Command(tetherBin, "start")
 	cmd.Env = daemonEnv(sock, db)
 	logBuf := &bytes.Buffer{}
 	cmd.Stdout = logBuf
@@ -825,11 +825,10 @@ func TestEndToEnd(t *testing.T) {
 	})
 }
 
-// TestBareTetherRunsTheDaemon is the one-binary headline scenario: no
-// separate daemon binary exists, so `tether` with no arguments must itself
-// become the daemon -- print the banner, accept connections, and shut down
-// cleanly on SIGINT.
-func TestBareTetherRunsTheDaemon(t *testing.T) {
+// TestStartRunsTheDaemon is the one-binary headline scenario: no separate
+// daemon binary exists, so `tether start` must itself become the daemon --
+// print the banner, accept connections, and shut down cleanly on SIGINT.
+func TestStartRunsTheDaemon(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
@@ -838,19 +837,19 @@ func TestBareTetherRunsTheDaemon(t *testing.T) {
 	sock := filepath.Join(dir, "sock")
 	db := filepath.Join(dir, "tether.db")
 
-	cmd := exec.Command(tetherBin)
+	cmd := exec.Command(tetherBin, "start")
 	cmd.Env = daemonEnv(sock, db)
 	out := &bytes.Buffer{}
 	cmd.Stdout = out
 	cmd.Stderr = out
 
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start bare tether: %v", err)
+		t.Fatalf("start tether start: %v", err)
 	}
 	waitDialable(t, sock, 10*time.Second)
 
 	r := runTether(t, sock, "", "ls", "--json")
-	requireExit(t, r, 0, "ls against the bare-tether daemon")
+	requireExit(t, r, 0, "ls against the tether start daemon")
 
 	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
 		t.Fatalf("signal SIGINT: %v", err)
@@ -860,11 +859,11 @@ func TestBareTetherRunsTheDaemon(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("bare tether did not exit cleanly on SIGINT: %v\noutput:\n%s", err, out.String())
+			t.Fatalf("tether start did not exit cleanly on SIGINT: %v\noutput:\n%s", err, out.String())
 		}
 	case <-time.After(5 * time.Second):
 		_ = cmd.Process.Kill()
-		t.Fatal("bare tether did not exit within 5s of SIGINT")
+		t.Fatal("tether start did not exit within 5s of SIGINT")
 	}
 
 	// out is only safe to read now that the process (and its stdout-copying

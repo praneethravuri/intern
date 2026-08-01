@@ -48,7 +48,8 @@ func runExplain(cmd *cobra.Command, args []string, opts *identityFlags) error {
 		err       error
 	)
 
-	if len(args) == 1 {
+	explainingSelf := len(args) == 0
+	if !explainingSelf {
 		workspace, err = resolveWorkspace(opts.workspace)
 		if err != nil {
 			return err
@@ -106,5 +107,14 @@ func runExplain(cmd *cobra.Command, args []string, opts *identityFlags) error {
 		[2]string{"pid", fmt.Sprintf("%d", a.PID)},
 		[2]string{"cwd", dash(a.Cwd)},
 	)
-	return keyValues(out, pairs)
+	if err := keyValues(out, pairs); err != nil {
+		return err
+	}
+
+	// A next-step hint only makes sense when you just inspected somebody
+	// else -- explaining yourself has no "now send to yourself" follow-up.
+	if explainingSelf {
+		return nil
+	}
+	return next(out, fmt.Sprintf("tether send %s \"...\"", addr))
 }

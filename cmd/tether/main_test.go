@@ -28,11 +28,24 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+// identityBearingCommands builds every command that authenticates or reads
+// as a particular agent -- the set both TestEveryCommandHasHelp and the
+// unknown-flag test below exercise identically.
+var identityBearingCommands = map[string]func() *cobra.Command{
+	"register": newRegisterCmd,
+	"send":     newSendCmd,
+	"inbox":    newInboxCmd,
+	"wait":     newWaitCmd,
+	"ls":       newLsCmd,
+	"explain":  newExplainCmd,
+	"doctor":   newDoctorCmd,
+}
+
 func TestRootHelpListsEveryCommand(t *testing.T) {
 	r := mustRun(t, newRootCmd(), "", "--help")
 
 	for _, want := range []string{
-		"register", "send", "inbox", "wait", "ls", "explain", "doctor", "version",
+		"start", "register", "send", "inbox", "wait", "ls", "explain", "doctor", "version",
 	} {
 		requireContains(t, r.stdout, want, "help")
 	}
@@ -44,17 +57,7 @@ func TestRootHelpListsEveryCommand(t *testing.T) {
 }
 
 func TestEveryCommandHasHelp(t *testing.T) {
-	commands := map[string]func() *cobra.Command{
-		"register": newRegisterCmd,
-		"send":     newSendCmd,
-		"inbox":    newInboxCmd,
-		"wait":     newWaitCmd,
-		"ls":       newLsCmd,
-		"explain":  newExplainCmd,
-		"doctor":   newDoctorCmd,
-	}
-
-	for name, build := range commands {
+	for name, build := range identityBearingCommands {
 		t.Run(name, func(t *testing.T) {
 			cmd := build()
 			if cmd.Short == "" {
@@ -116,6 +119,46 @@ func TestUnknownCommandIsRejected(t *testing.T) {
 	requireContains(t, r.err.Error(), "unknown command", "error")
 	requireNotContains(t, r.stdout, "Usage:", "stdout")
 	requireNotContains(t, r.stderr, "Usage:", "stderr")
+}
+
+// TestUnknownFlagListsValidFlags is AXI principle 2: an unknown flag must be
+// rejected before any daemon call, and the error must name this command's
+// real flags inline, so a caller can self-correct in the same turn instead
+// of guessing what was silently ignored.
+func TestUnknownFlagListsValidFlags(t *testing.T) {
+	for name, build := range identityBearingCommands {
+		t.Run(name, func(t *testing.T) {
+			r := run(t, build(), "", "--this-flag-does-not-exist")
+			if r.err == nil {
+				t.Fatalf("%s accepted an unknown flag", name)
+			}
+			requireContains(t, r.err.Error(), "unknown flag: --this-flag-does-not-exist", "error")
+			requireContains(t, r.err.Error(), "valid flags for "+name, "error")
+			requireContains(t, r.err.Error(), "--workspace", "error")
+		})
+	}
+}
+
+// TestUnknownFlagOnCommandsWithNoCustomFlags covers the commands that
+// register nothing of their own: bare tether, start, and version. cobra
+// always adds --help by the time flags are parsed, so that is what the
+// error lists -- not an empty "(none)" that would contradict --help working.
+func TestUnknownFlagOnCommandsWithNoCustomFlags(t *testing.T) {
+	cmds := map[string]func() *cobra.Command{
+		"tether":  newRootCmd,
+		"start":   newStartCmd,
+		"version": newVersionCmd,
+	}
+	for name, build := range cmds {
+		t.Run(name, func(t *testing.T) {
+			r := run(t, build(), "", "--this-flag-does-not-exist")
+			if r.err == nil {
+				t.Fatalf("%s accepted an unknown flag", name)
+			}
+			requireContains(t, r.err.Error(), "unknown flag: --this-flag-does-not-exist", "error")
+			requireContains(t, r.err.Error(), "valid flags for "+name+": --help", "error")
+		})
+	}
 }
 
 func TestExitCodeFor(t *testing.T) {

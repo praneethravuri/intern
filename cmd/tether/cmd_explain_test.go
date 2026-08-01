@@ -107,6 +107,29 @@ func TestExplainOfAnAgentInAnotherWorkspace(t *testing.T) {
 	}
 }
 
+// TestExplainOfAnotherAgentSuggestsSendingToThem is AXI principle 10:
+// explain's own docs say you inspect somebody else "before sending them
+// work", so the natural next step belongs in the output, exactly like ls
+// already suggests sending to its first listed agent.
+func TestExplainOfAnotherAgentSuggestsSendingToThem(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(statusResult()))
+
+	r := mustRun(t, newExplainCmd(), "", "backend")
+	requireContains(t, r.stdout, "Next: tether send backend@storefront", "stdout")
+}
+
+// TestExplainOfSelfHasNoSendHint is the flip side: explaining yourself has
+// no "send to yourself" follow-up, so principle 10 says omit it rather than
+// print a hint nobody would ever act on.
+func TestExplainOfSelfHasNoSendHint(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(statusResult()))
+
+	r := mustRun(t, newExplainCmd(), "")
+	requireNotContains(t, r.stdout, "Next:", "stdout")
+}
+
 func TestExplainJSON(t *testing.T) {
 	setIdentity(t, "frontend", "storefront")
 	newFakeDaemon(t, okHandler(statusResult()))
