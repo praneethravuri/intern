@@ -125,11 +125,25 @@ func runInbox(cmd *cobra.Command, opts *inboxOptions) error {
 
 	switch {
 	case opts.peek:
-		_, err = fmt.Fprintf(out, "%s (peek — not cleared).\n", plural(len(res.Messages), "message", "messages"))
+		// Pending is the true total after a peek (nothing changed): say so
+		// when --limit cut the list short, rather than implying that's everything.
+		if res.Pending > len(res.Messages) {
+			_, err = fmt.Fprintf(out, "%d of %s pending (peek — not cleared).\n",
+				len(res.Messages), plural(res.Pending, "message", "messages"))
+		} else {
+			_, err = fmt.Fprintf(out, "%s (peek — not cleared).\n", plural(len(res.Messages), "message", "messages"))
+		}
 	case opts.replay:
 		_, err = fmt.Fprintf(out, "%s (history).\n", plural(len(res.Messages), "message", "messages"))
 	default:
-		_, err = fmt.Fprintf(out, "%s, inbox cleared.\n", plural(len(res.Messages), "message", "messages"))
+		// A nonzero Pending after a drain means --limit left mail behind:
+		// "cleared" alone would wrongly imply the inbox is now empty.
+		if res.Pending > 0 {
+			_, err = fmt.Fprintf(out, "%s, inbox cleared — %s still pending, run `tether inbox` again.\n",
+				plural(len(res.Messages), "message", "messages"), plural(res.Pending, "message", "messages"))
+		} else {
+			_, err = fmt.Fprintf(out, "%s, inbox cleared.\n", plural(len(res.Messages), "message", "messages"))
+		}
 	}
 	return err
 }

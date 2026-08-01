@@ -137,11 +137,15 @@ func runSend(cmd *cobra.Command, args []string, opts *sendOptions) error {
 	}
 
 	if isBroadcastTarget(toName) {
-		if res.Delivered == 0 {
+		if res.Delivered == 0 && res.Failed == 0 {
 			_, err = fmt.Fprintf(out, "sent to nobody else in %s\n", toWorkspace)
 			return err
 		}
-		_, err = fmt.Fprintf(out, "sent to %s in %s\n", plural(res.Delivered, "agent", "agents"), toWorkspace)
+		msg := fmt.Sprintf("sent to %s in %s", plural(res.Delivered, "agent", "agents"), toWorkspace)
+		if res.Failed > 0 { // never silently drop a partial-failure count
+			msg += fmt.Sprintf(" · %s failed", plural(res.Failed, "delivery", "deliveries"))
+		}
+		_, err = fmt.Fprintln(out, msg)
 		return err
 	}
 

@@ -407,6 +407,23 @@ func TestSendBroadcastStarAndAllProduceTheSameRequestShape(t *testing.T) {
 	}
 }
 
+// TestSendBroadcastReportsFailedDeliveries is AXI principle 1: a partial
+// broadcast failure must never be silently dropped -- the caller only sees
+// "sent to 2 agents" today even when a 3rd eligible recipient failed, which
+// reads as complete success it was not.
+func TestSendBroadcastReportsFailedDeliveries(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+	newFakeDaemon(t, okHandler(protocol.SendResult{
+		Recipients: []string{"backend@storefront", "reviewer@storefront"},
+		Delivered:  2,
+		Failed:     1,
+	}))
+
+	r := mustRun(t, newSendCmd(), "", "*", "heads up")
+	requireContains(t, r.stdout, "sent to 2 agents in storefront", "stdout")
+	requireContains(t, r.stdout, "1 delivery failed", "stdout")
+}
+
 // TestSendBroadcastWithNoOtherAgentsIsSuccess is the CLI-level half of "a
 // lone agent broadcasting to an empty room is a valid, unremarkable case":
 // Delivered: 0 must exit 0, not fail.

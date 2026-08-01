@@ -87,7 +87,7 @@ func TestUniversalFlagsMatchReadmeClaim(t *testing.T) {
 	cmds := commandsByName(t)
 	for name, cmd := range cmds {
 		if name == "" {
-			continue // bare tether (the daemon): no flags at all
+			continue // bare tether (inbox glance): no flags at all
 		}
 		if got := cmd.Flags().Lookup("as") != nil; got != wantAs[name] {
 			t.Errorf("%s: --as registered = %v, want %v", name, got, wantAs[name])

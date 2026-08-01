@@ -8,16 +8,35 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/praneethravuri/tether/internal/sanitize"
 )
 
-// quiet marks a command as reporting its own failures, so cobra prints
-// neither "Error: ..." nor the usage block.
+// quiet marks a command as reporting its own failures -- no "Error: ..." or
+// usage dump -- and makes a bad flag list this command's valid ones.
 func quiet(cmd *cobra.Command) *cobra.Command {
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
+	cmd.SetFlagErrorFunc(flagErrorFunc)
 	return cmd
+}
+
+// flagErrorFunc appends this command's valid flags to a flag-parsing error.
+func flagErrorFunc(cmd *cobra.Command, err error) error {
+	return fmt.Errorf("%w\nvalid flags for %s: %s", err, cmd.Name(), flagNames(cmd))
+}
+
+// flagNames lists cmd's registered flags as "--name", in registration order.
+func flagNames(cmd *cobra.Command) string {
+	var names []string
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		names = append(names, "--"+f.Name)
+	})
+	if len(names) == 0 {
+		return "(none)"
+	}
+	return strings.Join(names, ", ")
 }
 
 // identityFlags are the flags shared by every command that acts as, or on

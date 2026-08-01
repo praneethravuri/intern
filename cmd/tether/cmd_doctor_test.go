@@ -86,7 +86,7 @@ func TestDoctorWithoutADaemonDegradesAndExitsThree(t *testing.T) {
 	requireContains(t, out, os.Getenv("TETHER_SOCK"), "stdout")
 	requireContains(t, out, "storefront", "stdout")
 	requireContains(t, out, "no daemon running", "stdout")
-	requireContains(t, out, "start it with `tether`", "stdout")
+	requireContains(t, out, "start it with `tether start`", "stdout")
 
 	// The diagnosis is the output, so there is nothing extra to print.
 	if msg := errorMessage(r.err); msg != "" {

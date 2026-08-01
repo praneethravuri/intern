@@ -5,7 +5,18 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
+
+// TestFlagNamesOnACommandWithNoFlagsAtAll exercises the empty-list branch
+// directly: cobra only adds --help once a command actually executes, so a
+// bare, never-run *cobra.Command really can have zero flags.
+func TestFlagNamesOnACommandWithNoFlagsAtAll(t *testing.T) {
+	if got := flagNames(&cobra.Command{}); got != "(none)" {
+		t.Fatalf("flagNames = %q, want (none)", got)
+	}
+}
 
 // failingWriter always errors, to exercise the io error branches every
 // output helper here otherwise never takes.

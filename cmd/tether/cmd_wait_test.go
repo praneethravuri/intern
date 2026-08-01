@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -280,5 +281,36 @@ func TestWaitBoundsAutoStartRetriesOnRepeatedTransportFailure(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&spawns); n > 2 {
 		t.Fatalf("spawnDaemon was called %d times, want at most 2 -- not once per retry", n)
+	}
+}
+
+// TestWaitStdoutCarriesOnlyTheFinalResult is AXI principle 7: stdout is the
+// payload channel, so a wait that internally retries past several capped
+// responses must still print exactly one line on success -- nothing about
+// the retries that happened underneath.
+func TestWaitStdoutCarriesOnlyTheFinalResult(t *testing.T) {
+	setIdentity(t, "frontend", "storefront")
+
+	var calls int32
+	newFakeDaemon(t, func(req protocol.Request) protocol.Response {
+		if req.Method == protocol.MethodRegister {
+			return protocol.OK(req.ID, protocol.RegisterResult{Created: true})
+		}
+		n := atomic.AddInt32(&calls, 1)
+		if n < 3 {
+			return protocol.OK(req.ID, protocol.WaitResult{TimedOut: true, Capped: true})
+		}
+		return protocol.OK(req.ID, protocol.WaitResult{Pending: 1})
+	})
+
+	r := mustRun(t, newWaitCmd(), "", "--timeout", "30s")
+
+	lines := strings.Split(strings.TrimRight(r.stdout, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("stdout has %d lines, want exactly 1 (the final result only):\n%s", len(lines), r.stdout)
+	}
+	requireContains(t, r.stdout, "1 message pending for frontend@storefront", "stdout")
+	if r.stderr != "" {
+		t.Fatalf("stderr = %q, want empty: wait has nothing to warn about here", r.stderr)
 	}
 }
